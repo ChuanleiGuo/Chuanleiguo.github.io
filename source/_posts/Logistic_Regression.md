@@ -1,6 +1,6 @@
 ---
 title: 【机器学习课程笔记】| Logistic Regression 
-date: 2017-1-1 9:226:23
+date: 2017-01-01 09:26:23
 categories: 
 - MOOC
 tags:
