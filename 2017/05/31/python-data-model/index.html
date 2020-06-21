@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="什么是 Data ModelData Model 简单来说就是对 Python 语言的基本结构的描述。如果将 Python 本身看做一个 Framework，Data Model 就定义了和 Python 的交互方式。 对象（Object）是 Python 对数据的抽象方式，Python 将所有数据都抽象为对象以及对象见的关系。每一个对象都由三部分构成：id、type 和 value。一个对象在被">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Python 中的 Data Model">
+<meta property="og:url" content="http://chuanleiguo.com/2017/05/31/python-data-model/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="什么是 Data ModelData Model 简单来说就是对 Python 语言的基本结构的描述。如果将 Python 本身看做一个 Framework，Data Model 就定义了和 Python 的交互方式。 对象（Object）是 Python 对数据的抽象方式，Python 将所有数据都抽象为对象以及对象见的关系。每一个对象都由三部分构成：id、type 和 value。一个对象在被">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2017-05-31T07:13:46.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="python">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="http://chuanleiguo.com/2017/05/31/python-data-model/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Python 中的 Data Model | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2017/05/31/python-data-model/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Python 中的 Data Model
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2017-05-31 15:13:46" itemprop="dateCreated datePublished" datetime="2017-05-31T15:13:46+08:00">2017-05-31</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/programming-language/" itemprop="url" rel="index"><span itemprop="name">编程语言</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2017/05/31/python-data-model/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/05/31/python-data-model/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="什么是-Data-Model"><a href="#什么是-Data-Model" class="headerlink" title="什么是 Data Model"></a>什么是 Data Model</h2><p>Data Model 简单来说就是对 Python 语言的基本结构的描述。如果将 Python 本身看做一个 Framework，Data Model 就定义了和 Python 的交互方式。</p>
+<p>对象（Object）是 Python 对数据的抽象方式，Python 将所有数据都抽象为对象以及对象见的关系。每一个对象都由三部分构成：<code>id</code>、<code>type</code> 和 <code>value</code>。一个对象在被创建后，它的 <code>id</code> 就不会在改变了，我们可以将它当做对象在内存中的地址。<code>is</code> 操作符可以比较两个对象的是否有相同的 <code>id</code>，<code>id()</code> 函数将返回对象地址的整数表示。</p>
+<p>对象的 <code>type</code> 决定了对象支持哪些操作，以及该类型对象可能持有的值。<code>type()</code> 函数返回一个对象的类型，和 <code>id</code> 一样，一个对象的类型是<em>不可改变</em>的。</p>
+<p>如果一个对象的 <code>value</code> 是可变的，那么这个对象就是可变的（mutable）；如果对象的 <code>value</code> 是不可变的，那么这个对象也就是不可变的（immutable）。如果一个不可变的容器对象包含了可变对象的引用，那么虽然引用所指向的对象可以被改变，但是该容器仍然被认为是不可变的，因为它包含的引用并没有改变。一个对象的可变性（mutability）由该对象的 <code>type</code> 决定。比如，数字，字符串和 tuple 都是不可变对象，而字典和集合是可变对象。</p>
+<p>Python 是一种公认的易用的语言，我们可以很容易的考猜测或者直觉来正确使用它的功能。但是在刚开始使用 Python 的时候，我们可能会奇怪，为什么我们要使用 <code>len(array)</code> 而不是 <code>array.len()</code> 来得到一个数组的长度呢？这里的原因就在于 Python 的 Data Model。Data Model 描述了我们与 Python 的交互方式，它通过特殊的语法来调用定义在对象上的魔法方法（Magic Method）。魔法方法通常在方法名的首位都添加 <code>__</code>，例如 <code>__getitem__</code>。当我们通过下标来访问对象时，<code>obj[key]</code>，解析器实际上回去调用 <code>obj.__getitem__(key)</code>。我们通过重定义对象中的魔法方法来与 Python 中的基础设施（Iteration Collection，etc）交互。</p>
+<h2 id="Pythonic-Card-Deck"><a href="#Pythonic-Card-Deck" class="headerlink" title="Pythonic Card Deck"></a>Pythonic Card Deck</h2><p>下面，我们通过一个简单的例子来演示实现 <code>__getitem__</code> 和 <code>__len__</code> 之后类的功能。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> collections</span><br><span class="line"></span><br><span class="line">Card = collections.namedtuple(<span class="string">"Card"</span>, [<span class="string">"rank"</span>, <span class="string">"suit"</span>])</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">FrenchDeck</span>:</span></span><br><span class="line">    ranks = [str(n) <span class="keyword">for</span> n <span class="keyword">in</span> range(<span class="number">2</span>, <span class="number">11</span>)] + list(<span class="string">"JQKA"</span>)</span><br><span class="line">    suits = <span class="string">"spades diamonds clubs hearts"</span>.split()</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span><span class="params">(self)</span>:</span></span><br><span class="line">        self._cards = [Card(rank, suit) <span class="keyword">for</span> suit <span class="keyword">in</span> self.suits</span><br><span class="line">                                        <span class="keyword">for</span> rank <span class="keyword">in</span> self.ranks]</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__len__</span><span class="params">(self)</span>:</span></span><br><span class="line">        <span class="keyword">return</span> len(self._cards)</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__getitem__</span><span class="params">(self, position)</span>:</span></span><br><span class="line">        <span class="keyword">return</span> self._cards[position]</span><br></pre></td></tr></table></figure>
+
+<p>上面的代码中我们使用 namedtuple 在表示一张牌，用 <code>FrenchDeck</code> 类来代表一副牌。我们可以将它的实例传入 <code>len()</code> 在得到一共有多少张牌：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>deck = FrenchDeck()</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>len(deck)</span><br><span class="line"><span class="number">52</span></span><br></pre></td></tr></table></figure>
+
+<p>我们也可以直接通过下标来访问某一张牌，使用通过实现 <code>__getitem__</code> 来使类拥有的能力：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>deck[<span class="number">0</span>]</span><br><span class="line">Card(rank=<span class="string">'2'</span>, suit=<span class="string">'spades'</span>)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>deck[<span class="number">-1</span>]</span><br><span class="line">Card(rank=<span class="string">'A'</span>, suit=<span class="string">'hearts'</span>)</span><br></pre></td></tr></table></figure>
+
+<p>因为我们在 <code>__getitem__</code> 中使用了 <code>self._card</code> 的 <code>[]</code> 操作，所以，我们的类也可以直接获得切片的功能：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>deck[:<span class="number">3</span>]</span><br><span class="line">[Card(rank=<span class="string">'2'</span>, suit=<span class="string">'spades'</span>), Card(rank=<span class="string">'3'</span>, suit=<span class="string">'spades'</span>), Card(rank=<span class="string">'4'</span>, suit=<span class="string">'spades'</span>)]</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>deck[<span class="number">12</span>::<span class="number">13</span>]</span><br><span class="line">[Card(rank=<span class="string">'A'</span>, suit=<span class="string">'spades'</span>), Card(rank=<span class="string">'A'</span>, suit=<span class="string">'diamonds'</span>), Card(rank=<span class="string">'A'</span>, suit=<span class="string">'clubs'</span>), Card(rank=<span class="string">'A'</span>, suit=<span class="string">'hearts'</span>)]</span><br></pre></td></tr></table></figure>
+
+<p>在实现了 <code>__getitem__</code> 之后，我们的类也是可遍历的（iterable）：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span><span class="keyword">for</span> card <span class="keyword">in</span> deck:</span><br><span class="line"><span class="meta">... </span>    print(card)</span><br><span class="line">...</span><br><span class="line">Card(rank=<span class="string">'2'</span>, suit=<span class="string">'spades'</span>)</span><br><span class="line">Card(rank=<span class="string">'3'</span>, suit=<span class="string">'spades'</span>)</span><br><span class="line">Card(rank=<span class="string">'4'</span>, suit=<span class="string">'spades'</span>)</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>遍历也可以是隐式的，如果一个集合没有实现 <code>__contains__</code> 方法，<code>in</code> 操作就是做顺序扫描：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>Card(<span class="string">'Q'</span>, <span class="string">"hearts"</span>) <span class="keyword">in</span> deck</span><br><span class="line"><span class="literal">True</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>Card(<span class="string">'7'</span>, <span class="string">"beats"</span>) <span class="keyword">in</span> deck</span><br><span class="line"><span class="literal">False</span></span><br></pre></td></tr></table></figure>
+
+<p>我们可以与标准库交互来随机选择一张牌，<code>random.choice</code>可以从一个序列中随机选择一个元素：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> random <span class="keyword">import</span> choice</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>choice(deck)</span><br><span class="line">Card(rank=<span class="string">'K'</span>, suit=<span class="string">'hearts'</span>)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>choice(deck)</span><br><span class="line">Card(rank=<span class="string">'J'</span>, suit=<span class="string">'spades'</span>)</span><br></pre></td></tr></table></figure>
+
+<p>通过上面的例子我们可以看到，实现魔法方法有两个好处：</p>
+<ol>
+<li>类的用户不需要去记忆标准操作的方法名。比如，要得到序列中元素的个数，可直接使用 <code>len(s)</code>，而不需要记忆应该使用 <code>.size()</code> 还是 <code>.length()</code>。</li>
+<li>可以更容易地与 Python 标准库协作，从而避免重新发明轮子。</li>
+</ol>
+<p>通过实现魔法方法，我们的类的行为很像一个标准的 Python 序列，可以使我们的类获得与语言核心交互的能力（如：迭代和切片）。</p>
+<h2 id="魔法方法的工作方式"><a href="#魔法方法的工作方式" class="headerlink" title="魔法方法的工作方式"></a>魔法方法的工作方式</h2><p>通常，魔法方法是由解析器来调用的而不是用户，除非用户在做元编程（meta programming）。但是对于內建的类型如 list，str，bytearray 等，解析器并不会去数元素的个数。在 CPython 的实现中，<code>len()</code> 会之间返回 C 语言结构体 <code>PyVarObject</code> 中 <code>ob_size</code> 的值，这个值代表了内存中对象的大小。</p>
+<p>魔法方法的被调用过程是隐式的。例如，当我们使用 <code>for i in x</code> 时，会导致调用 <code>iter(x)</code>，再调用 <code>x.__iter__()</code>。用户唯一可能会需要经常直接调用的魔法方法是 <code>__init__</code>，在作为类的初始化方法。</p>
+<p>如果要实现一个魔法方法，通常通过调用內建的方法来实现是更好的选择，应为內建方法可以提供额外的功能而且速度往往更快。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Data Model 是对 Python 语言的基本结构的描述，定义了內建或自定义类型与语言的交互方式。我们可以通过实现魔法方法来充分利用 Python 提供的功能，构建强大的类型。</p>
+<p>完整的魔法方法列表见：<a href="https://docs.python.org/3/reference/datamodel.html" target="_blank" rel="noopener">Data Model</a></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/python/" rel="tag"># python</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2017/04/17/csapp-bomblab/" rel="prev" title="【深入理解计算机系统实验笔记】| Bomb Lab">
+      <i class="fa fa-chevron-left"></i> 【深入理解计算机系统实验笔记】| Bomb Lab
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2017/07/09/csapp-attacklab/" rel="next" title="【深入理解计算机系统实验笔记】| Attack Lab">
+      【深入理解计算机系统实验笔记】| Attack Lab <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是-Data-Model"><span class="nav-number">1.</span> <span class="nav-text">什么是 Data Model</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pythonic-Card-Deck"><span class="nav-number">2.</span> <span class="nav-text">Pythonic Card Deck</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#魔法方法的工作方式"><span class="nav-number">3.</span> <span class="nav-text">魔法方法的工作方式</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">4.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2017/05/31/python-data-model/";
+    this.page.identifier = "2017/05/31/python-data-model/";
+    this.page.title = "Python 中的 Data Model";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="正式工作半年来，公司项目以 Go 作为主要语言。由于有 C 语言基础，刚开始我感觉上手 Go 语言很容易，而且比 C 语言有更好的可读性，再加上「函数」变成了一等公民，函数式的写法也让部分功能的实现变得更加简练和易读。但是，我对 Go 语言的并发特性却一直理解不深，总觉得在处理并发任务的时候我的思路依然是使用 Java 的 communicate by sharing memory，而不是 Go">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Go 语言中的常用并发模式">
+<meta property="og:url" content="http://chuanleiguo.com/2019/12/22/concurrency-patterns-in-go/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="正式工作半年来，公司项目以 Go 作为主要语言。由于有 C 语言基础，刚开始我感觉上手 Go 语言很容易，而且比 C 语言有更好的可读性，再加上「函数」变成了一等公民，函数式的写法也让部分功能的实现变得更加简练和易读。但是，我对 Go 语言的并发特性却一直理解不深，总觉得在处理并发任务的时候我的思路依然是使用 Java 的 communicate by sharing memory，而不是 Go">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2019-12-22T02:34:23.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="编程语言">
+<meta property="article:tag" content="Go-lang">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="http://chuanleiguo.com/2019/12/22/concurrency-patterns-in-go/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Go 语言中的常用并发模式 | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2019/12/22/concurrency-patterns-in-go/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Go 语言中的常用并发模式
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-12-22 10:34:23" itemprop="dateCreated datePublished" datetime="2019-12-22T10:34:23+08:00">2019-12-22</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/programming-language/" itemprop="url" rel="index"><span itemprop="name">编程语言</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2019/12/22/concurrency-patterns-in-go/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/12/22/concurrency-patterns-in-go/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>正式工作半年来，公司项目以 Go 作为主要语言。由于有 C 语言基础，刚开始我感觉上手 Go 语言很容易，而且比 C 语言有更好的可读性，再加上「函数」变成了一等公民，函数式的写法也让部分功能的实现变得更加简练和易读。但是，我对 Go 语言的并发特性却一直理解不深，总觉得在处理并发任务的时候我的思路依然是使用 Java 的 <em>communicate by sharing memory</em>，而不是 Go 语言所提倡的 <em>share memory by communicating</em>。所以，近期阅读和实践了一些 Go 语言并发编程相关的书籍和资料，总结了 Go 语言中常用的并发编程模式，记录在这里。</p>
+<h2 id="for-select-loop"><a href="#for-select-loop" class="headerlink" title="for-select-loop"></a>for-select-loop</h2><p><code>select</code> 组合多个 <code>channel</code> ，<code>channel</code> 组合多个 <code>goroutine</code>。<code>select</code> 是 Go 语言并发编程中最终的指令之一，我们可以在任何上下文，无论是函数、还是多个子系统，中将多个 <code>channel</code> 组合在一起，并加入如「取消」、「限时等待」和「默认值」等功能。最简单的例子就是：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">var</span> ch1, ch2 &lt;-<span class="keyword">chan</span> <span class="keyword">interface</span>&#123;&#125;</span><br><span class="line"><span class="keyword">var</span> ch3 <span class="keyword">chan</span>&lt;- <span class="keyword">interface</span>&#123;&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">select</span> &#123;</span><br><span class="line"><span class="keyword">case</span> &lt;-ch1:</span><br><span class="line">    <span class="comment">// logic 1</span></span><br><span class="line"><span class="keyword">case</span> &lt;-ch2:</span><br><span class="line">    <span class="comment">// logic 2</span></span><br><span class="line"><span class="keyword">case</span> ch3&lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;:</span><br><span class="line">    <span class="comment">// logic 3</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>与 <code>switch</code> 不同的是，多个 <code>case</code> 不是同步判断是否满足条件，而是异步判断，如果所有 <code>case</code> 都不满足，那么 <code>select</code> 语句将一直阻塞。、</p>
+<p><code>for-select-loop</code> 是 Go 语言中最常见的使用方法，可以被应用在多个场景中：</p>
+<p>顺序写入变量到 <code>channel</code>：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> _, str := <span class="keyword">range</span> []<span class="keyword">string</span>&#123;<span class="string">"str1"</span>, <span class="string">"str2"</span>, <span class="string">"str3"</span>&#125; &#123;</span><br><span class="line">    <span class="keyword">select</span> &#123;</span><br><span class="line">    <span class="keyword">case</span> &lt;-stop:</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    <span class="keyword">case</span> strChan&lt;- str:</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>无限循环执行任务直到被取消：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span>&#123;</span><br><span class="line">    <span class="keyword">select</span> &#123;</span><br><span class="line">    <span class="keyword">case</span> &lt;-stop:</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    <span class="keyword">default</span>：</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 循环任务</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="错误处理"><a href="#错误处理" class="headerlink" title="错误处理"></a>错误处理</h2><p>并发编程中，错误处理非常困难。我们花费大量时间思考多个线程之间的内存共享和协调，但是忽略如何优雅地处理错误。Go 语言抛弃了在其他语言中常见的异常抛出机制，并提出开发者应该给予错误处理逻辑分支与正产流程相同的关注。在错误处理汇总最基本的问题是「谁应该处理错误？」。有时候，程序需要停止进一步沿着调用栈向上传递异常，而是处理异常。</p>
+<p>在并发编程中，这个问题会变得更加复杂。因为 <code>goroutine</code> 是独立于它的父亲和兄弟 goroutine 执行的，很难确定应该如何处理错误。例如：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">checkStatus := <span class="function"><span class="keyword">func</span><span class="params">(stop &lt;-<span class="keyword">chan</span> <span class="keyword">interface</span>&#123;&#125;, urls ...<span class="keyword">string</span>)</span> &lt;-<span class="title">chan</span> *<span class="title">http</span>.<span class="title">Response</span></span> &#123;</span><br><span class="line">    responses := <span class="built_in">make</span>(<span class="keyword">chan</span> *http.Response)</span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">defer</span> <span class="built_in">close</span>(responses)</span><br><span class="line">        <span class="keyword">for</span> _, url := <span class="keyword">range</span> urls &#123;</span><br><span class="line">            resp, err := http.Get(url)</span><br><span class="line">            <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">                fmt.Println(err)</span><br><span class="line">                <span class="keyword">continue</span></span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">select</span> &#123;</span><br><span class="line">            <span class="keyword">case</span> &lt;-stop:</span><br><span class="line">                <span class="keyword">return</span></span><br><span class="line">            <span class="keyword">case</span> responses &lt;- resp:</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;()</span><br><span class="line">    <span class="keyword">return</span> responses</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">stop := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">interface</span>&#123;&#125;)</span><br><span class="line"><span class="keyword">defer</span> <span class="built_in">close</span>(stop)</span><br><span class="line"></span><br><span class="line">urls := []<span class="keyword">string</span>&#123;<span class="string">"https://google.com"</span>, <span class="string">"https://host"</span>&#125;</span><br><span class="line"><span class="keyword">for</span> response := <span class="keyword">range</span> checkStatus(stop, urls...) &#123;</span><br><span class="line">    fmt.Printf(<span class="string">"Response: %v\n"</span>, response.Status)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>例子中发送 http 请求的 goroutine 没有办法将错误返回，只能打印错误信息防止将错误吞掉。所以，不应该使 goroutine 无法回传错误。更好的方式是注意点分离，并发的 goroutine 应该将错误信息传递给另外一个更够访问程序全部状态的组件，并正确处理错误。如我们可以封装返回值和错误信息：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Result <span class="keyword">struct</span> &#123;</span><br><span class="line">    Error error</span><br><span class="line">    Response *http.Response</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">checkStatus := <span class="function"><span class="keyword">func</span><span class="params">(stop &lt;-<span class="keyword">chan</span> <span class="keyword">interface</span>&#123;&#125;, urls ...<span class="keyword">string</span>)</span> &lt;-<span class="title">chan</span> *<span class="title">http</span>.<span class="title">Response</span></span> &#123;</span><br><span class="line">    results := <span class="built_in">make</span>(<span class="keyword">chan</span> Result)</span><br><span class="line">    <span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">defer</span> <span class="built_in">close</span>(results)</span><br><span class="line"></span><br><span class="line">        <span class="keyword">for</span> _, url := <span class="keyword">range</span> urls &#123;</span><br><span class="line">            resp, err := http.Get(url)</span><br><span class="line">            result = Result&#123;Error: err, Response: resp&#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">select</span> &#123;</span><br><span class="line">            <span class="keyword">case</span> &lt;-stop:</span><br><span class="line">                <span class="keyword">return</span></span><br><span class="line">            <span class="keyword">case</span> results &lt;- result:</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;()</span><br><span class="line">    <span class="keyword">return</span> results</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">stop := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">interface</span>&#123;&#125;)</span><br><span class="line"><span class="keyword">defer</span> <span class="built_in">close</span>(stop)</span><br><span class="line"></span><br><span class="line">urls := []<span class="keyword">string</span>&#123;<span class="string">"https://google.com"</span>, <span class="string">"https://host"</span>&#125;</span><br><span class="line"><span class="keyword">for</span> result := <span class="keyword">range</span> checkStatus(stop, urls...) &#123;</span><br><span class="line">    <span class="keyword">if</span> result.Error != <span class="literal">nil</span> &#123;</span><br><span class="line">        fmt.Printf(<span class="string">"error: %v"</span>, result.Error)</span><br><span class="line">        <span class="keyword">continue</span></span><br><span class="line">    &#125;</span><br><span class="line">    fmt.Printf(<span class="string">"Response: %v\n"</span>, result.Response.Status)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这种方式的关键在于我们将可能的结果和错误封装在一起，可能够表示 <code>checkStatus</code> 所能够产生的全部结果，而使我们的主流程可能决定应该处理错误情况。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/" rel="tag"># 编程语言</a>
+              <a href="/tags/Go-lang/" rel="tag"># Go-lang</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/10/05/%E4%B8%AD%E5%A4%AE%E5%B8%9D%E5%9B%BD%E7%9A%84%E8%B4%A2%E6%94%BF%E5%AF%86%E7%A0%81/" rel="prev" title="中央帝国的财政密码">
+      <i class="fa fa-chevron-left"></i> 中央帝国的财政密码
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2020/05/16/Kubernetes-Pod-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/index/" rel="next" title="Kubernetes Pod 的设计与实现">
+      Kubernetes Pod 的设计与实现 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#for-select-loop"><span class="nav-number">1.</span> <span class="nav-text">for-select-loop</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#错误处理"><span class="nav-number">2.</span> <span class="nav-text">错误处理</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2019/12/22/concurrency-patterns-in-go/";
+    this.page.identifier = "2019/12/22/concurrency-patterns-in-go/";
+    this.page.title = "Go 语言中的常用并发模式";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

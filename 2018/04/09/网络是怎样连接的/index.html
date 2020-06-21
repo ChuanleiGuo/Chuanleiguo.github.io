@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="网络是个巨大而复杂的系统，在我们尝试了解网络如何工作的时候，首先需要从高空俯瞰网络的全貌，否则如果过早地沉溺于细节，就很难理解每一种网络技术背后的意义；如果无法理解技术的本质意义，就只能停留在死记硬背的程度，无法做到实际运用。当年在课上学习了计算机网络，课本上的内容基本都仅仅用来应付考试和求职面试了，而没有真正内化为自己的实力。最近朋友推荐了《网路是如何连接的》，日本技术人员的书从来都以知识">
+<meta property="og:type" content="article">
+<meta property="og:title" content="网络是如何连接的">
+<meta property="og:url" content="http://chuanleiguo.com/2018/04/09/%E7%BD%91%E7%BB%9C%E6%98%AF%E6%80%8E%E6%A0%B7%E8%BF%9E%E6%8E%A5%E7%9A%84/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="网络是个巨大而复杂的系统，在我们尝试了解网络如何工作的时候，首先需要从高空俯瞰网络的全貌，否则如果过早地沉溺于细节，就很难理解每一种网络技术背后的意义；如果无法理解技术的本质意义，就只能停留在死记硬背的程度，无法做到实际运用。当年在课上学习了计算机网络，课本上的内容基本都仅仅用来应付考试和求职面试了，而没有真正内化为自己的实力。最近朋友推荐了《网路是如何连接的》，日本技术人员的书从来都以知识">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-3-31/protocol_stack.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-3-31/netstat.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-3-31/socket.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-3-31/adsl.png">
+<meta property="article:published_time" content="2018-04-09T18:16:23.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="计算机网络">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/images/2018-3-31/protocol_stack.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2018/04/09/%E7%BD%91%E7%BB%9C%E6%98%AF%E6%80%8E%E6%A0%B7%E8%BF%9E%E6%8E%A5%E7%9A%84/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>网络是如何连接的 | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2018/04/09/%E7%BD%91%E7%BB%9C%E6%98%AF%E6%80%8E%E6%A0%B7%E8%BF%9E%E6%8E%A5%E7%9A%84/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          网络是如何连接的
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-04-10 02:16:23" itemprop="dateCreated datePublished" datetime="2018-04-10T02:16:23+08:00">2018-04-10</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2018/04/09/%E7%BD%91%E7%BB%9C%E6%98%AF%E6%80%8E%E6%A0%B7%E8%BF%9E%E6%8E%A5%E7%9A%84/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/04/09/网络是怎样连接的/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>网络是个巨大而复杂的系统，在我们尝试了解网络如何工作的时候，首先需要从高空俯瞰网络的全貌，否则如果过早地沉溺于细节，就很难理解每一种网络技术背后的意义；如果无法理解技术的本质意义，就只能停留在死记硬背的程度，无法做到实际运用。当年在课上学习了计算机网络，课本上的内容基本都仅仅用来应付考试和求职面试了，而没有真正内化为自己的实力。最近朋友推荐了《网路是如何连接的》，日本技术人员的书从来都以知识面广、细致周全著称，所以我希望抛开学院派的教条，理解网络的全貌。</p>
+<h2 id="网络的全貌"><a href="#网络的全貌" class="headerlink" title="网络的全貌"></a>网络的全貌</h2><p>对网络的探索之旅从在浏览器地址框输入网址开始，随后浏览器解析网址并利用 DNS 服务获取域名对应的服务器 IP 地址，为了发送数据到服务器，浏览器委托系统的网络协议栈将消息打包并加上目的地址等控制信息，然后协议栈将数据包交给主机网卡，主机网卡将数据包转换为比特流发送到服务器。主机通过光纤等线路接入网络运营商，网络运营商对比特流进行分拣，再通过骨干网络的路由器的不断接力将信息最终传递到 Web 服务器。通过骨干网络后，网络包抵达 Web 服务器，服务器的防火墙将对包进行检查并决定是否放行。信息包在通过防火墙后，可能还会遇到缓存和负载均衡器，最终被服务器处理。在服务器中，数据包被还原成为原始的请求信息，并通过服务器主机的协议栈交给程序，服务器程序将响应数据按同样的流程回传给客户端浏览器。最终浏览器得以将响应信息渲染为网页。</p>
+<h2 id="浏览器发送请求"><a href="#浏览器发送请求" class="headerlink" title="浏览器发送请求"></a>浏览器发送请求</h2><p>在地址框输入网址后，浏览器首先会解析 URL 得到访问方法（HTTP，FTP)、域名、端口号和文件路径。之后，浏览器生成符合 HTTP 格式的请求信息。</p>
+<p>生成 HTTP 消息之后，浏览器需要委托操作系统将消息传递到服务器，为了发送消息，操作系统需要知道服务器的 IP 地址。因此，浏览器会通过请求 DNS 服务器来获取服务器的 IP 地址。在主机中，请求 DNS 服务器查询 IP 地址的功能通常包含在操作系统的 <code>Socket</code> 库中。浏览器调用 <code>Socket</code> 库中的解析器（resolver）完成 IP 地址的查询。</p>
+<blockquote>
+<p><code>Socket</code> 是调用网络功能的程序组件集合。</p>
+</blockquote>
+<p>与浏览器一样，解析器在生成 DNS 请求后也需要委托操作系统的网络协议栈发送请求。从这里我们也可以看出，委托协议栈发送消息是一个通用的过程，与具体应用无关，这体现了程序设计上的<code>解耦合</code>原则。</p>
+<p>DNS 系统是典型的、非常成功的分布式系统。在收到客户端发出的 IP 地址解析请求后，如果本地没有保存域名对应的 IP 地址，DNS 服务器会按照树形结构不断向上级 DNS 服务器查询，直到顺藤摸瓜找到 IP 地址或确认不存在该域名对应的 IP 地址。</p>
+<p>在查询到服务器的 IP 地址，并生成 HTTP 请求内容后，浏览器则会委托系统协议栈完成数据的发送。</p>
+<h2 id="协议栈发送数据"><a href="#协议栈发送数据" class="headerlink" title="协议栈发送数据"></a>协议栈发送数据</h2><p>委托协议栈发送数据同样通过调用 <code>Socket</code> 库来完成。协议栈通过 TCP 协议发送数据包裹四个阶段：</p>
+<ol>
+<li>创建套接字</li>
+<li>连接服务器</li>
+<li>收发数据</li>
+<li>断开连接并删除套接字</li>
+</ol>
+<p>协议栈的内部结构为：</p>
+<p><img src="/images/2018-3-31/protocol_stack.png" alt="协议栈内部结构"></p>
+<p>在协议栈中，上面的部分想下面的部分委派工作，下面的部分接受委派并实际执行。所以，当调用 <code>Socket</code> 库时，实际的工作会有操作系统的协议栈完成。协议栈中的 <code>TCP</code> 和 <code>UDP</code> 分别都使用了 <code>IP</code> 协议，最终 <code>IP</code> 协议通过网卡驱动程序使用网卡实际发送数据。</p>
+<blockquote>
+<p>协议栈是根据套接字中记录的控制信息来工作的</p>
+</blockquote>
+<p>套接字本身是一个概念，而用于控制通信操作的控制信息构成了套接字的实体，协议栈在执行操作时需要参阅套接字中的控制信息。我们在系统中使用 <code>netstat</code> 命令就可以看到系统中当前活跃地套接字。</p>
+<p><img src="/images/2018-3-31/netstat.png" alt="enter image description here"></p>
+<p>当浏览器调用<code>Socket</code>库中 <code>socket</code>、<code>connect</code>、<code>write</code>、<code>read</code>、<code>close</code>等操作时，应用程序与Web 服务器的交互可以被总结为下图：</p>
+<p><img src="/images/2018-3-31/socket.png" alt="enter image description here"></p>
+<h3 id="创建套接字"><a href="#创建套接字" class="headerlink" title="创建套接字"></a>创建套接字</h3><p>调用 <code>socket</code> 申请创建套接字。协议栈首先分配用于存放套接字所需的内存空间，并写入初始状态。然后，将该套接字的描述符返回给应用程序。收到描述符后，应用程序在进行收发数据委托时就需要提供这个描述符。由于套接字中记录了通信双方的信息以及通信处于怎样的状态，所以只要通过描述符确定了套接字，协议栈就能获取所有信息。</p>
+<h3 id="连接服务器"><a href="#连接服务器" class="headerlink" title="连接服务器"></a>连接服务器</h3><p>创建套接字后，应用程序调用 <code>connect</code> 将本地套接字与服务器套接字进行连接。所谓“连接”，实际上是通信双方交换控制信息。在套接字创建结束后，并没有保存任何信息，也不知道目标通信对象是谁；而服务器端也同样不知道将要和那一台主机通信。所以，客户端和服务器端需要通过“连接”来做好双方通信的准备。</p>
+<p>连接过程中需要的控制信息有两类：</p>
+<ol>
+<li>数据包头部信息（如 TCP 数据包头部）</li>
+<li>套接字中记录的信息</li>
+</ol>
+<p>“连接”过程由应用程序调用 <code>connect</code> 函数开始。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">connect</span>(sockfd, socket_addr, socket_port)</span><br></pre></td></tr></table></figure>
+
+<p>该调用将服务器的 IP 地址和端口号传递给协议栈中的 TCP 模块，然后 TCP 模块会用过 IP 协议于对应的服务器端的 TCP 模块交换控制信息。首先，客户端先创建一个包含表示开始数据收发操作的控制信息的头部，将 SYN 设为1，并设置适当窗口大小等。当头部创建好之后，TCP 模块委托 IP 模块进行发送到服务器端的 TCP 模块。之后，服务器的 TCP 模块返回响应，并将头部中 ACK 设置为1。接下来，客户端收到响应，连接被正确建立。这也就是我们知道的“TCP三次握手”。</p>
+<p>建立连接后，控制流程被交回到应用程序。</p>
+<h3 id="收发数据"><a href="#收发数据" class="headerlink" title="收发数据"></a>收发数据</h3><p>收到数据的过程从应用程序调用 <code>write</code> 把数据交给协议栈开始。对于协议栈来说，要发送的数据就是一定长度的二进制比特流。在发送数据之前，协议栈会首先将数据保存在发送缓冲区中，等到缓冲区满，或者达到一定的等待时间后就才发送。但是缓冲区中信息的长度和等待时间是矛盾的，如果长度优先，那么网络利用效率会提高，但是可能因为等待缓冲区满而造成延迟；如果时间优先，那么等待时间变少，网络利用效率又会降低。TCP 协议的规格没有规定如何实现数据长度和等待时间的平衡，所以不同平台的做法会有差异。</p>
+<p>TCP 在协议在收发数据时会对较大的包进行拆分，并使用序号和 ACK 的保证信息发送的完成，并能在客户端和服务器之间实现全双工通信。首先，客户端在连接时计算出发送数据到服务器时的序号初始值，并将初始值发送个服务器；服务器根据初始值计算 ACK 号并返回给客户端；同时，服务器也计算出与客户端通信使用的初始值，并发送给客户端；同样客户端也需要根据服务器发来的初始值计算 ACK 号并返回。</p>
+<p>为了适当的设置 ACK 的超时等待时间，TCP 采用了动态调整等待时间的方法，这个时间根据 ACK 号返回所需的时间来判断。若返回变慢，则延长等待时间，若变快，而减少等待时间。为了在等待 ACK 时不浪费计算资源，TCP 使用滑动窗口方法来管理数据发送和 ACK 的操作。接收方在收到数据包后，会根据序号将数据包合并，仅仅确认最后一个收到的数据包的序号，这样大大缓解的出现网络拥挤的可能。</p>
+<p>在发送消息后，应用程序调用 <code>read</code> 来委托协议栈获取响应消息。和发送数据一样，接收数据也同样需要将数据保存在缓冲区，在等待收到数据期间，协议栈会将应用程序挂起，等到收到响应消息后再继续执行。</p>
+<h3 id="断开连接并删除套接字"><a href="#断开连接并删除套接字" class="headerlink" title="断开连接并删除套接字"></a>断开连接并删除套接字</h3><p>在客户端与服务器之间断开连接的过程则就是我们熟知的 TCP “四次挥手”的过程。首先由客户端生成 TCP 头部，将 FIN 置为 1 发送给服务器，服务器返回确认；然后再由服务器生成 TCP 头部，置控制信息 FIN 为 1 发送给客户端，最后客户端返回确认。</p>
+<p>在断开连接之后，原来的通信使用的套接字就不会再使用了。但是为了防止误操作，客户端或服务器会等待一段时间之后才真正删除套接字。</p>
+<h3 id="IP-协议发送数据包"><a href="#IP-协议发送数据包" class="headerlink" title="IP 协议发送数据包"></a>IP 协议发送数据包</h3><blockquote>
+<p>IP 协议的职责仅仅是将委托的信息打包送到对方手里，或者接收对方发来的数据包。</p>
+</blockquote>
+<p>IP 协议发送数据包的起点是 TCP 模块委托 IP 模块发送数据包的操作。TCP 模块在 TCP 分组前添加上 TCP 头部，然后整个传给 IP 模块。收到委托后，IP 模块会 TCP 分组当做整块数据，并在前面加上 IP 头部和 MAC 头部。IP 头部包含发往目的地所需要的信息，MAC 头部包含通过以太网将包传输至最近的路由器所需要的控制信息。其中的 MAC 头部中的目的 MAC 地址通过向网络广播 ARP 请求来获得。接下来，封装好的包会被交给网络硬件，如网卡。通过网卡将信息转化为点信号或光信号，并通过网线发送出去，然后这些信号就会到达集线器、路由器等设备，再由转发设备一步一步地送达接收方。</p>
+<h2 id="网络设备-——-集线器、交换机和路由器"><a href="#网络设备-——-集线器、交换机和路由器" class="headerlink" title="网络设备 —— 集线器、交换机和路由器"></a>网络设备 —— 集线器、交换机和路由器</h2><p>从计算机发送出来的网络包会通过集线器、路由器等设备转发，最终到达目的地。转发设备根据包头部中的控制信息，查询转发表判断包的目的地，然后将包朝目的地方向转发。也就意味着，HTTP 请求方法、TCP 的确认响应和序号，客户端和服务器之间的关系，这一切都与包的传输无关。所有的包在传输过程中都是独立的，相互之间没有任何关系。</p>
+<h3 id="集线器"><a href="#集线器" class="headerlink" title="集线器"></a>集线器</h3><p>从信号流出网卡进入网线开始，网卡中的 PHY(MAU) 将包转换成电信号，电信号通过 RJ-45 接口进入双绞线。为了防止信号在传输过程中出现失真、减少噪声对信号的干扰，网线使用的是双绞线。双绞线通过两根信号线的缠绕抵消外源性噪声，通过改变节距抑制内源性噪声。</p>
+<p>当信息通过双绞线到达集线器后，会被广播到整个网络中。以太网将包发送到所有设备，然后由设备根据接收方 MAC 地址来判断应该接收哪些包。由于集线器只是原封不动地将信息广播出去，所以即使信号受到噪声的干扰发生了失真，也会原样发送到目的地。这是接收信号的设备（交换机、路由器、服务器等），会在将信号转换成数字信息后通过 FCS（帧校验序列）校验发现错误，并将出错的包丢弃。因为丢弃的包不会触发确认响应，所以协议栈的 TCP 模块会检测到丢包，并对该包进行重传。</p>
+<h3 id="交换机"><a href="#交换机" class="headerlink" title="交换机"></a>交换机</h3><p>交换机的设计是将网络包原样转发到目的地。首先，信息到达网线接口，接下来，PHY(MAU) 将网线中的信号转换为通用格式，然后传递给 MAC 模块。MAC 模块将信号转换为数字信息，然后通过包末尾的 FCS 校验错误，如果没问题册存放到缓冲区中。交换机中网线接口和后面的电路部分加在一起成为一个端口，或者说交换机的一个端口就相当于计算机上一块网卡，但是交换机的端口不具有 MAC 地址。将包存储缓冲区后，要查询一下这个包的接收方 MAC 地址是否已经在 MAC 地址表中有记录了，如果有，就可以通过交换电路将包发送到相应的端口了。特殊的，当交换机发现一个包要发回源端口是，就会直接丢弃这个包。</p>
+<p>交换机在转发包的过程中，需要对 MAC 地址表的内容进行维护。</p>
+<ol>
+<li>收到包时，将发送方 MAC 地址以及其输入端口的号码写入 MAC 地址表中。</li>
+<li>删除地址表中某条记录的操作，这是为了防止设备移动是产生问题。</li>
+</ol>
+<p>交换机相对于集线器的另外一个优势在于，交换机的全双工模式可以同时发送和接收数据。交换机中有自动协商功能，可以由相互连接的双方探测对方是否支持全双工模式，并自动切换成相应的工作模式。此外，交换机可以同时转发多个包。相对的，集线器会将输入信号广播到所有端口，如果同时输入多个信号就会发生碰撞，无法同时传输多路信号。从整体转发能力看，交换机高于集线器。</p>
+<h3 id="路由器"><a href="#路由器" class="headerlink" title="路由器"></a>路由器</h3><p>网络包经过集线器和交换机后，就到达了路由器，并在此被转发到下一个路由器。这一步转发的工作原理和交换机类似，也是通过查表判断包转发的目标。不过在具体的操作上，路由器和交换机是有区别的。因为路由器是基于 IP 设计的，而交换机是基于以太网设计的。</p>
+<p>路由器在转发包时，首先会通过通过端口将发过来的包接收进来，这一步的工作取决于端口对应的通信技术。接下来，转发模块会根据接收的包的 IP 头部中记录的接收方 IP 地址，在路由表中进行查询，一次判断转发目标。然后，转发模块将包转移到转发目标对应的端口，端口再按照硬件的规则将包发送出去，也就是转发模块委托端口模块将包发送出去。路由器的以太网端口具有 MAC 地址，因此它就能够成为以太网的发送方和接收方。端口还具有 IP 地址。当转发时，首先路由器端口会接收发送自己的以太网包，然后查询转发目标，再由相应端口作为发送方将以太网包发送出去。而交换机只将收到的包转发出去，而自己不会成为发送方或接收方。</p>
+<p>在「查表判断转发目标」中，路由器是根据 IP 头部的 IP 地址来判断的。路由表中包含：目标地址、子网掩码、网关、接口、跃点数。实际上第一列的 IP 地址只包含表示子网的网络号部分的比特值，而表示主机号部分的比特值全部为 0。打个比方，路由器在转发时只看接收方地址属于哪个区。</p>
+<p>为了知道网络号的比特数，路由表中还有一列子网掩码，通过子网掩码可以判断网络号的比特数。路由器会对路由表中的地址进行路由聚合或路由拆分。路由聚合就是将多个子网合并为一个子网，而路由拆分则会将一个子网拆分成多条记录。</p>
+<h4 id="路由器的包接收操作"><a href="#路由器的包接收操作" class="headerlink" title="路由器的包接收操作"></a>路由器的包接收操作</h4><p>首先，信号到达网线接口部分，PHY(MAU) 模块和 MAC 模块将信号转换成数字信号，然后通过 FCS 进行错误校验，如果没问题则检查 MAC 头部中的接口方 MAC 地址，看看是不是发给自己的包，如果是就放到接收方缓冲区中，否则就丢弃。完成包接收后，路由器就丢弃包开头的 MAC 头部。接下来，路由器会根据 MAC 头部后方的 IP 头部中的内容进行包的转发操作。首先查询路由表判断转发目标，这一阶段，路由器会选择网络号的最长匹配，如果长度相同的有多条，则选择跃点数最小的记录。如果在路由表中无法找到匹配的记录，路由器会丢弃这个包，并通过 ICMP 消息告知发送方。</p>
+<p>路由表中的最后一样通常为默认路由，这条记录填写接入互联网的路由器地址，被称为默认网关。</p>
+<p>在将网络包发送出去之前，路由器还有工作要做。第一是，更新 IP 头部中的 TTL（生存时间）字段，包每经过一个路由器的转发，这个值就会减1，当这个值变成0时，就表示超过了有效期，这个包就会被丢弃。此外，如果包过大，路由器会通过分片功能拆分网络包。路由器也会使用 ARP 来查询下一个转发目标的 MAC 地址。</p>
+<blockquote>
+<p>IP(路由器) 负责将包送达通信对象这一整体过程，而其中将包传输到下一个路由器的过程则是由以太网(交换机)来负责的。</p>
+</blockquote>
+<h2 id="进入互联网内部"><a href="#进入互联网内部" class="headerlink" title="进入互联网内部"></a>进入互联网内部</h2><p>互联网的基本工作方式和家庭、公司网络一样，都是通过路由器来转发包，而路由器的基本结构和工作方式也没有什么不同。主要的区别在于距离的不同和路由的维护方式不同。</p>
+<p>互联网接入路由器是按照接入网规则来发送包的。ADSL 连接方式如图。</p>
+<p><img src="/images/2018-3-31/adsl.png" alt="enter image description here"></p>
+<p>首先，客户端生成网络包，经过集线器和路由器到达互联网接入路由器，并在此从以太网包中取出 IP 包并判断转发目标。接下来，如果互联网接入路由器和 ADSL Modem 之间是通过以太网连接的，那么就会按照以太网的规则执行包发送的操作。不同的是，发送信号时，网络包会包上 MAC 头部、PPPoE 头部、PPP 头部，然后按照以太网规则转换成电信号后被发送出去。</p>
+<p>互联网接入路由器将包发送出去后，包就到达了 ADSL Modem，然后，ADSL Modem 会把包拆分成很多小格子，每个小格子称为一个信元。然后，ADSL Modem 采用一种用正弦波，使用振幅(ASK)和相位调制(PSK)相结合的正交振幅调制方式对信号进行合成。信元转换为电信号之后，信号会进入一个叫做分离器的设备，然后 ADSL 信号会和电话语音信号混合起来一起从电话线传输出去。</p>
+<p>从分离器出来后，就是插电话线的接口，信号会通过电话线到达大楼的 IDF 和 MDF 与外部相连接。信号通过电话线达到电话局之后，会经过配线盘、分离器到达 DSLAM（多路 ADSL Modem）。在这里，电信号会被还原成数字信息——信元。信元从 DSLAM 出来之后，会到达一个叫做 BAS 的包转发设备，然后被还原成原始的包。BAS 是用户登录操作的窗口，通过 PPP 和 PPPoE 协议实现了用户认证和配置下发的功能。接下来，BAS 会将包前面的 MAC 头部和 PPPoE 头部丢弃，取出 PPP 头部以及后面的数据。然后，BAS 会在包的前面加上隧道专用头部，并发送到隧道的出口。</p>
+<p>现在网络包已经通过接入网，到达了网络运营商的接入路由器（POP）。通过 POP 发送的包会汇总到网络运行中心（NOC）中。NOC 是运营商的核心设备配备了高性能路由器。互联网内部使用 BGP 机制在运营商之间交换路由信息。对于互联网内部的路由器来说，无论最终目的地是否属于同一家运营商，都可以从路由表中查到，因此只要一次接一次按照路由表中的目标地址来转发包，最终一定可以到达目的地。</p>
+<h2 id="服务器端局域网"><a href="#服务器端局域网" class="headerlink" title="服务器端局域网"></a>服务器端局域网</h2><p>网络包从互联网到达服务器的过程根据服务器部署地点的不同而不同。最简单的，服务器直接部署在公司网络上，可以从互联网直接访问。但现在几乎不使用这种方法，原因之一是公网 IP 有限，第二是安全问题，服务器完全暴露在公网中，安全漏洞也都会暴露出来，可以说是“裸奔”。</p>
+<p>因此，业界一般会部署防火墙。它只允许允许发往指定服务器的指定应用程序的网络包通过，从而屏蔽其他不允许通过的包。部署防火墙后需要设置包过滤规则，首先，要观察包是如何流动的。通过接收方和发送方 IP 地址，我们可以判断出包的起点和终点。当要限制某个应用程序时，可以在判断条件中加上 TCP 头部或者 UDP 头部中的端口号，例如仅允许访问服务器的 80 端口。不仅仅要设置互联网和公开区域之间的包过滤规则，还需要设置公司内网和互联网之间之间，或者公司内网与公开区域之间的包过滤规则。总之，我们可以在防火墙中设置各种规则，判断是否允许通过。</p>
+<p>当服务器的访问量上升，增加服务器线路的带宽是有效地，但并不是网络变快了就可以解决所有的问题。要解决服务器 CPU 过重的问题，可以采用多台 Web 服务器，减少每台服务器的访问量。一般，公司或组织内会使用负载匀衡器分配对服务器的访问。使用负载均衡器时，首先要将负载均衡器的 IP 地址代替 Web 服务器的实际地址注册到 DNS 服务器上。当负载均衡器收到请求，就会判断将请求转发给哪台 Web 服务器。</p>
+<p>除了使用多台功能相同的 Web 服务器分担负载之外，还可以将整个系统按功能分成不同的服务器，如 Web 服务器、数据库服务器、缓存服务器等。缓存服务器时一台通过代理机制对数据进行缓存的服务器，它可以将 Web 服务器返回的数据保存在磁盘中，并可以代替 Web 服务器将磁盘中的数据返回给客户端。缓存服务器可以减轻 Web 服务器的负担，缩短 Web 服务器的处理时间。内容分发服务（CDN）也可以起到减轻服务器负担的作用。</p>
+<h2 id="终点——服务器"><a href="#终点——服务器" class="headerlink" title="终点——服务器"></a>终点——服务器</h2><p>服务器根据功能的不同有很多种，其硬件和操作系统与客户端有所不同。但是，网络相关的部分，如网卡、协议栈、Socket库等功能和客户端没有什么区别。在连接过程中，客户端发起连接，而服务器等待连接操作，因此 Socket 库的用法有所不同。此外，服务器的程序可以同时和多台客户端计算机进行通信。</p>
+<p>当服务器启动并读取配置文件时完成初始化操作后，就会运行等待连接模块。连接模块会创建套接字，然后进入等待连接的暂停状态。接下来，当客户端发起连接时，这个模块会恢复运行并接受连接，然后启动客户端通信模块，并移交完成连接的套接字。此后，客户端通信模块就会使用已连接的套接字与客户端通信，通信结束后，这个模块就退出了。</p>
+<p>服务器调用 Socket 库创建套接字。</p>
+<ol>
+<li>创建套接字</li>
+<li>将套接字设置为等待连接状态</li>
+<li>接受连接</li>
+<li>收发数据</li>
+<li>断开管道并删除套接字</li>
+</ol>
+<p>首先，协议栈调用 <code>socket</code> 创建套接字，接下来调用 <code>bind</code> 将端口号写入套接字中。设置好端口号之后，协议栈会调用 <code>listen</code> 向套接字写入等待连接状态这一控制信息。这样一来，套接字就会开始等待来自客户端的连接网络包。然后，协议栈会调用 <code>accept</code> 来接受连接。一旦客户端的包到达，就会返回响应包并开始接受连接操作。接下来，协议栈会给等待连接的套接字复制一个副本，然后将连接对象等控制信息写入新的套接字中。到这里，我们就创建了一个新的套接字，并和客户端套接字连接在一起了。而最初的那个套接字还会以等待连接的状态继续存在，当再次调用 <code>accept</code>，客户端连接包到达时，它又可以再次执行接收连接操作。为了区分端口号相同的套接字，服务器使用：客户端 IP 地址、客户端端口号、服务器 IP 地址和服务器端口号识别套接字。</p>
+<p>服务器收到网络包后，首先由网卡接收信号，然后将其还原成数字信息。接下来需要根据包末尾的帧校验序列（FCS）来校验错误，然后与包末尾的 FCS 值进行比较。当 FCS 一直，接下来检查 MAC 头部中的接收方MAC 地址，看看这个包是不是发给自己的。然后，还原后的数字信息被保存在网卡内部的缓冲区中。因为接下来接收操作需要 CPU 参与，因此网卡需要通过中断将网络包到达的的事件通知给 CPU。CPU 切换到网卡任务后，网卡驱动会从缓冲区中将包读取出来，根据头部中字段调用负责处理该协议的软件。这里，会调用 TCP/IP 协议栈，并将包转交给它。当网络包转交到协议栈时，IP 模块会首先开始工作，检查 IP 头部。IP 模块首先会检查 IP 头部的格式是否符合规范，然后检查接收方 IP 地址，看包是不是发给自己的，若不是，则丢弃。接下来需要检查包有没有被分片，如果是分片的包，则将包暂时存放在内存中，等所有分片到达之后将所有分片组装起来还原成原始包；如果没有分片，则直接保留接收时的样子，不需要进行重组。</p>
+<p>接下来检查 IP 头部的协议号字段，并将包转交给相应的模块（TCP/UDP）。如果收到的包是 TCP 发起连接的包，则 TCP 模块会确认头部控制位 SYN；检查接收方端口号；为相应等待连接套接字复制一个新的副本；记录发送方 IP 地址和端口号等信息。</p>
+<p>当收到的数据包时，TCP模块会：</p>
+<ol>
+<li>根据收到包的发送方 IP 地址、发送方端口号、接收方 IP 地址、接收方端口号找到对应的套接字</li>
+<li>将数据块拼合起来保存在接收缓冲区中</li>
+<li>向客户端返回 ACK</li>
+</ol>
+<p>当数据收发完成后，便开始执行断开操作。服务器程序首先会调用 Socket 库的 <code>close</code>，TCP 模块会生成一个控制位 FIN 为 1 的 TCP 头部，并委托 IP 模块发送给客户端。当客户端收到这个包后，会返回一个 ACK 号。接下来客户端调用 <code>close</code>，生成一个 FIN 为 1 的 TCP 头部发给服务器，服务器再返回 ACK 号，这时断开操作就完成了。当断开操作完成后，套接字会在一段时间后被删除。</p>
+<p>在 Web 服务器中，<code>read</code> 获取的数据内容就是 HTTP 请求消息。服务器程序会根据收到的请求消息从的内容进行相应的处理，并生成响应消息，再通过 <code>write</code> 返回给客户端。请求消息包括一个“方法”的命令，以及数据源的 URI，服务器程序会根据这些内容想客户端返回数据。</p>
+<p>当服务器完成对请求消息的各种处理后，就可以返回响应消息了。这与客户端想服务器发送请求消息是时的工作过程相同。Web 服务器发送的响应消息会被分成多个包发送给客户端，然后客户端需要接受数据。</p>
+<p>浏览器在收到数据后，为了显示内容，首先需要判断响应消息中的数据属于那种类型，原则上通过 <code>Content-Type</code> 头部字段判断。在得到数据类型后，浏览器就可以做出相应的反应。最终，浏览器就可以显示数据，并等待用户下一个操作了。</p>
+<p>从输入网址到显示出网页内容，这个过程只有短短几秒。然后，这几秒的背后，离不开各种设备和软件的相互配合。这段探索之旅，我们可以看到网络的全貌，之后，就可以根据自己的兴趣，深入探索了。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/" rel="tag"># 计算机网络</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/03/26/%E4%B8%8A%E5%B8%9D%E7%9A%84%E6%89%8B%E6%9C%AF%E5%88%80/" rel="prev" title="上帝的手术刀">
+      <i class="fa fa-chevron-left"></i> 上帝的手术刀
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/08/05/Docker-Namespace-Cgroup/" rel="next" title="Docker 基础知识之 Namespace, Cgroup">
+      Docker 基础知识之 Namespace, Cgroup <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#网络的全貌"><span class="nav-number">1.</span> <span class="nav-text">网络的全貌</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#浏览器发送请求"><span class="nav-number">2.</span> <span class="nav-text">浏览器发送请求</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#协议栈发送数据"><span class="nav-number">3.</span> <span class="nav-text">协议栈发送数据</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#创建套接字"><span class="nav-number">3.1.</span> <span class="nav-text">创建套接字</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#连接服务器"><span class="nav-number">3.2.</span> <span class="nav-text">连接服务器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#收发数据"><span class="nav-number">3.3.</span> <span class="nav-text">收发数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#断开连接并删除套接字"><span class="nav-number">3.4.</span> <span class="nav-text">断开连接并删除套接字</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IP-协议发送数据包"><span class="nav-number">3.5.</span> <span class="nav-text">IP 协议发送数据包</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网络设备-——-集线器、交换机和路由器"><span class="nav-number">4.</span> <span class="nav-text">网络设备 —— 集线器、交换机和路由器</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#集线器"><span class="nav-number">4.1.</span> <span class="nav-text">集线器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#交换机"><span class="nav-number">4.2.</span> <span class="nav-text">交换机</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#路由器"><span class="nav-number">4.3.</span> <span class="nav-text">路由器</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#路由器的包接收操作"><span class="nav-number">4.3.1.</span> <span class="nav-text">路由器的包接收操作</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#进入互联网内部"><span class="nav-number">5.</span> <span class="nav-text">进入互联网内部</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#服务器端局域网"><span class="nav-number">6.</span> <span class="nav-text">服务器端局域网</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#终点——服务器"><span class="nav-number">7.</span> <span class="nav-text">终点——服务器</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2018/04/09/%E7%BD%91%E7%BB%9C%E6%98%AF%E6%80%8E%E6%A0%B7%E8%BF%9E%E6%8E%A5%E7%9A%84/";
+    this.page.identifier = "2018/04/09/网络是怎样连接的/";
+    this.page.title = "网络是如何连接的";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

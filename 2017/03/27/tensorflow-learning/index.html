@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="最近学习机器学习用到了 TensorFlow，所以找来了 Google Brain 团队发表的关于 TensorFlow 的论文学习，以下是一点笔记。 TensorFlow 的起源Google 在成立 Google Brain  之后，为了内部研究和开发机器学习和深度神经网络的需要，开发了「DistBelief」，并且去得了很好得成果。在 「DistBelief」的基础上，Google Brain">
+<meta property="og:type" content="article">
+<meta property="og:title" content="TensorFlow 论文阅读笔记">
+<meta property="og:url" content="http://chuanleiguo.com/2017/03/27/tensorflow-learning/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="最近学习机器学习用到了 TensorFlow，所以找来了 Google Brain 团队发表的关于 TensorFlow 的论文学习，以下是一点笔记。 TensorFlow 的起源Google 在成立 Google Brain  之后，为了内部研究和开发机器学习和深度神经网络的需要，开发了「DistBelief」，并且去得了很好得成果。在 「DistBelief」的基础上，Google Brain">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-3-26/fd5969dca256c079243624fda8c8e34e.jpeg">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-3-26/60a1561cb2cb9d8d7564c182466def5f.jpeg">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-3-26/cf4177411902a63dc43231742cae16d7.jpeg">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-3-26/c675f1318f113e51f6a52f987227db8c.jpeg">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-3-26/Screen%20Shot%202017-03-21%20at%2018.17.17.png">
+<meta property="article:published_time" content="2017-03-27T12:37:23.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="Machine Learning">
+<meta property="article:tag" content="TensorFlow">
+<meta property="article:tag" content="Deep Learning">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/images/2017-3-26/fd5969dca256c079243624fda8c8e34e.jpeg">
+
+<link rel="canonical" href="http://chuanleiguo.com/2017/03/27/tensorflow-learning/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>TensorFlow 论文阅读笔记 | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2017/03/27/tensorflow-learning/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          TensorFlow 论文阅读笔记
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2017-03-27 20:37:23" itemprop="dateCreated datePublished" datetime="2017-03-27T20:37:23+08:00">2017-03-27</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/booknotes/" itemprop="url" rel="index"><span itemprop="name">读书笔记</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2017/03/27/tensorflow-learning/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/03/27/tensorflow-learning/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>最近学习机器学习用到了 TensorFlow，所以找来了 Google Brain 团队发表的关于 TensorFlow 的<a href="https://arxiv.org/abs/1603.04467" target="_blank" rel="noopener">论文</a>学习，以下是一点笔记。</p>
+<h2 id="TensorFlow-的起源"><a href="#TensorFlow-的起源" class="headerlink" title="TensorFlow 的起源"></a>TensorFlow 的起源</h2><p>Google 在成立 Google Brain  之后，为了内部研究和开发机器学习和深度神经网络的需要，开发了「DistBelief」，并且去得了很好得成果。在 「DistBelief」的基础上，Google Brain 团队对所期望的系统有了更深入的理解，在加上新的对机器学习系统在不同运算环境中运行的需求，Google Brain 开发了 TensorFlow。</p>
+<h2 id="编程模型和基本概念"><a href="#编程模型和基本概念" class="headerlink" title="编程模型和基本概念"></a>编程模型和基本概念</h2><p> 一个 TensorFlow 的计算过程被描述为一个有向图（directed graph），这个有向图由许多<em>node</em> 组合而成。不同的 <em>node</em> 可能保存着持久化的状态，也可能用来实现分支或循环操作。</p>
+<p>在一个 TensorFlow 的数据流图中，每个 <em>node</em> 有零个或多个输入，也有零个或多个输出，并代表某个操作（<em>operation<em>）的实例化过程。在数据流图中普通边上流动的值被称为 *tensor</em>，代表任意维度的数组。特殊的边被称为 <em>control dependencies</em>，这样的边上没有数据流动，只用来描述操作的依赖关系，用来后一个 *operation</em> 必须在前一个 <em>operation</em> 完成之后才能执行。</p>
+<p>下面是用 Python 实现的一个简单的数据流图：</p>
+<p><img src="/images/2017-3-26/fd5969dca256c079243624fda8c8e34e.jpeg" alt="fd5969dca256c079243624fda8c8e34e"></p>
+<p>实现的数据流图为：</p>
+<p><img src="/images/2017-3-26/60a1561cb2cb9d8d7564c182466def5f.jpeg" alt="60a1561cb2cb9d8d7564c182466def5f"></p>
+<h3 id="Operations-and-Kernels"><a href="#Operations-and-Kernels" class="headerlink" title="Operations and Kernels"></a>Operations and Kernels</h3><p>一个 <em>operation</em> 拥有一个名字，并且对一个计算进行抽象（比如矩阵乘法和加法）。一个 <em>operation</em> 也有很多属性（attributes），所有的属性必须在数据流图被构建的时候被提供或被推断，从而使得 TensorFlow 可以实例化一个 <em>node</em> 来执行这个 <em>operation</em>。</p>
+<p>一个 <em>kernel</em> 是对一种可以运行在专门硬件（如：CPU或 GPU）上的 <em>operation</em> 的实现。TensorFlow 使用一种注册机制来维护 <em>operation</em> 和 <em>kernel</em> 的集合，用户可以通过链接新的 <em>operation</em> 或 注册新的 <em>kernel</em> 在对 TensorFlow 进行拓展。</p>
+<h3 id="Session"><a href="#Session" class="headerlink" title="Session"></a>Session</h3><p>用户通过创建一个 <em>Session</em> 来和 TensorFlow 交互。可以使用 <em>Session</em> 接口的 <em>Extend</em> 在对现有的数据流图进行拓展。<em>Session</em> 支持的另一个主要的操作是 <em>Run*，它接受需要被计算的变量，和提供给数据流图的必要的数据来完成计算。调用 *Run</em> 后，TensorFlow 会自动按照所定义的数据流图，并在遵守依赖关系的前提下完成计算。</p>
+<h3 id="Variables"><a href="#Variables" class="headerlink" title="Variables"></a>Variables</h3><p>通常，一个数据流图会被计算多次，大多数的 <em>tensor</em> 在数据流图的一次执行后就会消失。而一个 <em>Variable</em> 是一种特殊的 <em>operation*，它可以返回一个指向在运算过程中持续存在的 *tensor</em> 的引。这些引用可以被传递给其他操作来对 <em>tensor</em> 进行修改。在机器学习任务中，通常使用 <em>Variable</em> 来保存参数，并在数据流图的运算过程中不断更新。</p>
+<h2 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h2><p>在一个 TensorFlow 系统中，用户通过 <em>Session</em> 和 TensorFlow 的 <em>master</em> 进程交互，<em>master</em> 进程将任务分配给不同的 <em>worker</em> 进程，而每个 <em>worker</em> 进程负责在一个或多个设备上执行运算。</p>
+<p>TensorFlow 有「本地」和「分布式」的实现版本，其中「本地」的实现表示所有的运算都在同一个操作系统的进程中执行（该操作系统可能拥有多个 CPU 或 GPU）；而「分布式」的实现支持有多台主机的多个进程共同完成计算任务。</p>
+<p><img src="/images/2017-3-26/cf4177411902a63dc43231742cae16d7.jpeg" alt="cf4177411902a63dc43231742cae16d7"></p>
+<p>在 TensorFlow 中设备以及设备的名字和计算进程都会被合理的管理，用户可以通过注册的方法添加新的设备。</p>
+<p>Tensor 在实现中是一个强类型的多维数组，Tensor 可以保存 从 8 bits 到 64 bits 的有/无符号整数、单/多精度的浮点数、复数和字符串类型。TensorFlow 使用引用计数来管理内存，当某个实例没有指向它的引用时，这个实例会自动被销毁。</p>
+<h3 id="TensorFlow-在单个设备上执行"><a href="#TensorFlow-在单个设备上执行" class="headerlink" title="TensorFlow 在单个设备上执行"></a>TensorFlow 在单个设备上执行</h3><p>TensorFlow 的最简单的执行模型是：一个 <em>worker</em> 进程在一个设备上进行计算。数据流图中 <em>node</em> 按照定义的相互依赖关系执行。TensorFlow 会保存每个 <em>node</em> 所依赖的，并且没有执行完毕的 <em>node</em> 的个数，当所有依赖的 <em>node</em> 执行完毕之后，该 <em>node</em> 会被加入一个「就绪队列」中，在这个队列中的 <em>node</em> 的执行顺序是<strong>不确定</strong>的。</p>
+<h3 id="TensorFlow-在多个设备上执行"><a href="#TensorFlow-在多个设备上执行" class="headerlink" title="TensorFlow 在多个设备上执行"></a>TensorFlow 在多个设备上执行</h3><p>对于拥有多个运算设备的系统，TensorFlow 需要解决两个难题：</p>
+<ol>
+<li>决定在哪个设备上执行某个 <em>node</em> 的计算任务</li>
+<li>管理设备间的数据交流</li>
+</ol>
+<h4 id="node-计算任务的分配"><a href="#node-计算任务的分配" class="headerlink" title="node 计算任务的分配"></a><em>node</em> 计算任务的分配</h4><p>对于一个给定的数据流图，TensorFlow 会使用设备分配算法（placement algorithm）负责将计算任务映射到可用的设备上。设备分配分配算法需要将成本模型（cost model）作为参数，它包含了每个 <em>node</em> 中计算操作的输入和输入张量的大小（以字节为单位）和该 <em>node</em> 估计的计算时间。</p>
+<p>设备分配算法模拟数据流图的计算过程并使用贪心策略（greedy heuristic）来为每个 <em>node</em> 分配运算设备。</p>
+<p>设备分配算法首先从数据流图的源头开始对每个 <em>node</em> 的计算过程进行模拟。当某个 <em>node</em> 需要计算资源时，设备分配算法会将运行该计算的预计时间最短的<strong>可用</strong>设备分配给该节点。对于需要多个计算设备的 <em>node</em>，分配算法会使用贪心策略考虑将计算分配到不同设备后所需要的计算时间，并会考虑设备间数据通信的成本。总之，分配算法会将<strong>执行某计算操作最快的可用设备</strong>分配给 <em>node</em>。</p>
+<h4 id="设备间的通信"><a href="#设备间的通信" class="headerlink" title="设备间的通信"></a>设备间的通信</h4><p>当设备分配算法结束时，数据流图会被划分为多个子图，每个子图对应一个计算设备。位于不同运算设备的任务 <em>x</em> 和 <em>y</em> 之间的通讯被新建的 <em>Send</em> 和 <em>Receive</em> <em>node</em>所接管。</p>
+<p><img src="/images/2017-3-26/c675f1318f113e51f6a52f987227db8c.jpeg" alt="c675f1318f113e51f6a52f987227db8"></p>
+<p>插入 <em>Receive</em> 和 <em>Send</em> 节点后，TensorFlow 使依赖于特定张量的操作使用同一个 <em>Receive node</em>，而不是每个操作都拥有一个 <em>Receive node</em>，这样可以避免不必要的内存分配，并可以解决数据同步问题。</p>
+<p>这样处理设备通讯的方法可以使得管理分配在不同设备上的 <em>node</em> 实现去中心化。因为 <em>Send</em> 和 <em>Receive</em> <em>nodes</em> 解决了数据同步问题，所以 <em>master</em> 进程仅仅需要对每个 <em>worker</em> 进程发出运行指令，而不需要管理位于不同运算设备上计算任务之间的通信。</p>
+<h3 id="TensorFlow-在分布式系统上执行"><a href="#TensorFlow-在分布式系统上执行" class="headerlink" title="TensorFlow 在分布式系统上执行"></a>TensorFlow 在分布式系统上执行</h3><p>TensorFlow 在分布式系统上的执行和在多个设备上的执行方式类似，在设备分配算法运行完后，每个子数据流图被分配到某个设备上，<em>Send</em> 和 <em>Receive</em> <em>node</em> 使用远程连接协议，比如：TCP 和 RDMA，在不同系统间传输数据。</p>
+<h4 id="容错"><a href="#容错" class="headerlink" title="容错"></a>容错</h4><p>在分布式系统的运行过程中，错误可能在许多地方被检测到。TensorFlow 主要依赖于：</p>
+<ol>
+<li>在 <em>Send</em> 和 <em>Receive</em> 之间的通信错误</li>
+<li><em>master</em> 进程对每个 <em>worker</em> 进程的周期性检查</li>
+</ol>
+<p>当某个错误被检测到时，整个数据流图的计算将被中断并且从头开始。注意，因为 <em>Variable</em> 保存在计算过程中持续存在的张量，所以 TensorFlow 将每个 <em>Variable</em> 与一个 <em>Save</em> 节点连接，<em>Save</em> 节点会定义保存 <em>Variable</em> 的状态。当错误发生时，TensorFlow 可以从 <em>Save</em> 保存的最近的状态恢复。</p>
+<h2 id="TensorFlow-的高级特性"><a href="#TensorFlow-的高级特性" class="headerlink" title="TensorFlow 的高级特性"></a>TensorFlow 的高级特性</h2><h3 id="梯度计算（Gradient-Computation）"><a href="#梯度计算（Gradient-Computation）" class="headerlink" title="梯度计算（Gradient Computation）"></a>梯度计算（Gradient Computation）</h3><p>许多优化和机器学习算法，如随机梯度下降（stochastic gradient descent），需要计算损失函数对某些输入的梯度。TensorFlow 有内置的对自动计算梯度的支持。如果 TensorFlow 中的一个 tensor $C$ 依赖于集合 ${X_k}$ 中的 tensor，那么内置的函数可以自动返回 ${dC/dX_k}$ 。</p>
+<p>当 TensorFlow 需要计算 tensor $C$ 对 tensor $I$ 的梯度时，它首先找到从 $I$ 到 $C$ 的计算路径，之后，从 $C$ 反向回溯到 $I$，对于反向路径上的每个节点，TensorFlow 都会添加一个节点，并根据前向操作使用求导的「链式法则」得到「梯度计算函数」。每个「梯度计算函数」可能被注册到任意操作，它会将偏导数和前向计算过程的输出作为输入。特别的，对于操作 $O$ 如果损失函数 $C$ 仅仅依赖于输出中的 $y_1$ 而不依赖于 $y_2$，那么 $d_C/d_{y_1}=0$。</p>
+<p>添加梯度计算节点会影响 TensorFlow 的优化能力，尤其是对内存使用的优化。开发团队也正在努力优化 TensorFlow 的内存管理策略。</p>
+<h3 id="数据流图的部分执行（Partial-Execution）"><a href="#数据流图的部分执行（Partial-Execution）" class="headerlink" title="数据流图的部分执行（Partial Execution）"></a>数据流图的部分执行（Partial Execution）</h3><p>TensorFlow 支持部分子图的运行。当用户将整个数据流图构建完毕之后，可以调用 Run 方法来确定要运行的任意子图，并且可以向数据流图的任意边输入数据，或从任意边读取数据。数据流图中的每个节点都有一个名字，该节点的每个输出都由节点名和输出端口确定，如 <em>bar:0</em> 表示 <em>bar</em> 节点的第一个输出。Run 方法的两个参数就可以确定唯一的子图。</p>
+<p>当计算一个子图时，会在为子图创建一个 <strong>feed</strong> 节点作为输入，<strong>fetch</strong> 节点用来接收输出。</p>
+<p><img src="/images/2017-3-26/Screen%20Shot%202017-03-21%20at%2018.17.17.png" alt="Screen Shot 2017-03-21 at 18.17.17"></p>
+<h3 id="设备限制（Device-Constraints）"><a href="#设备限制（Device-Constraints）" class="headerlink" title="设备限制（Device Constraints）"></a>设备限制（Device Constraints）</h3><p>TensorFlow 的用户可以通过对 <em>nodes</em> 添加对计算设备的限制来控制 <em>nodes</em> 的运算设备分配。用户可以设置某 <em>node</em> 仅可以在 GPU 上运算，或仅可以在设备的某进程中计算。</p>
+<h3 id="控制流（Control-Flow）"><a href="#控制流（Control-Flow）" class="headerlink" title="控制流（Control Flow）"></a>控制流（Control Flow）</h3><p>虽然没有任何明确控制流的数据流图的表达能力很强，但是支持了条件语句和循环可以产生更加简洁也更加高效的机器学习算法。</p>
+<p>TensorFlow 中添加了一些基本的控制流操作，可以处理环状的数据流图。<em>switch</em> 和 <em>merge</em> 操作使我们可以跳过整个子图的执行；<em>enter<em>，</em>leave</em> 和 <em>nextIteration</em> 操作使我们可以表达迭代。更高阶的 <em>if</em> 和 <em>while</em> 语句可以使用这些基本的原语来实现。</p>
+<p>TensorFlow 实现了 <em>tags</em> 和 <em>frames</em> 标记，循环中的每一次迭代都被赋予唯一的 <em>tag*，循环的执行状态用 *frame</em> 来分割。一个可用的输入可以再任意时候进入迭代，这样，多次可以被并行执行。</p>
+<p>TensorFlow 使用分布式定位技术（Distributed Coordination Mechanism）来执行带有控制流的数据流图。一般来说，一个循环可能包含被分贝在多个运算设备的 <em>node</em>。所以，管理循环的状态就变成了一个分布式的终止探测问题。TensorFlow 通过使用图重写（graph rewriting）来解决这个问题。在数据流图分割过程中，TensorFlow 会在每个子图中添加控制节点。这些节点实现了一个状态机，可以检测每次迭代的开始和结束，并决定是否终止循环。</p>
+<p>我们常常使用梯度下降来训练机器学习模型，并且将梯度的计算过程作为数据流图的一部分。当一个模型包含了控制流时，我们必须判断控制流分支的方向，再计算梯度；同样的，当一个模型拥有一个 <em>while</em> 循环时，我们需要依赖于循环的中间值来进行计算。TensorFlow 尝试重写子图来保存计算梯度所需要的信息。</p>
+<h3 id="输入操作（Input-Operations）"><a href="#输入操作（Input-Operations）" class="headerlink" title="输入操作（Input Operations）"></a>输入操作（Input Operations）</h3><p>TensorFlow 处理支持通过使用 <em>feed node</em> 来为计算提供数据外，也支持添加用于输入数据的 <em>input node</em>，它们使用文件名来配置，并可以每次执行时产生包含了一个或多个存储来文件中的数据的 <em>tensor</em>。</p>
+<h3 id="队列（Queues）"><a href="#队列（Queues）" class="headerlink" title="队列（Queues）"></a>队列（Queues）</h3><p>TensorFlow 中的队列允许数据流图中的不同部分异步地执行，并且通过 <em>enqueue</em> 和 <em>dequeue</em> 要求或提供数据。<em>enqueue</em> 可以将队列阻塞，直到有足够的可用空间，之后将数据放入队列；<em>dequeue</em> 将队列阻塞直到队列中有足够的可用元素。队列使得 TensorFlow 可以实现并行计算，当上一组数据仍在被用于计算时，下一组数据可直接被取出用于计算。</p>
+<p>除了 FIFO 队列外，TensorFlow 还实现了 <em>Shuffling Queue*，它可以随机地“打乱”队列中的元素，并输出其中一组。这样的队列对于需要 *shuffling</em> 功能的机器学习算法十分关键。</p>
+<h3 id="容器（Container）"><a href="#容器（Container）" class="headerlink" title="容器（Container）"></a>容器（Container）</h3><p>容器用于管理长期存在的可变状态。一个 <em>Variable</em> 被存储在一个容器内，默认的容器知道进程结束后才会被销毁。通过使用容器，可以实现在与多个不同 <em>session</em> 想关联的数据流图之间共享状态。</p>
+<h2 id="优化"><a href="#优化" class="headerlink" title="优化"></a>优化</h2><p>TensorFlow 中做了许多重要的性能优化，主要有：</p>
+<ol>
+<li>Common Subexpression Elimination。TensorFlow 可以删除多余的计算操作，如同一个计算操作的多个具有相同输入输出的拷贝。</li>
+<li>Controlling Data Communication and Memory Usage。TensorFlow 通过规划计算操作的执行对系统的性能实现了优化，尤其是在数据转移和内存占用方面。</li>
+<li>Asynchronous Kernels。TensorFlow 拥有非阻塞的内核，该内核函数被传入一个计算任务，在之前的计算任务结束后，被传入的任务继续执行。</li>
+<li>Optimized Libraries for Kernel Implementations。TensorFlow 使用高度优化的数学运算库来实现操作。</li>
+<li>Lossy Compression。当在不同设备间传输数据时，TensorFlow 使用 <em>lossy compression</em> 来压缩高精度数据，从而加快传输效率。</li>
+</ol>
+<p>TensorFlow 是 Google 在自己真实的人工智能经验上孵化出来的项目，非常值得我们学习。我觉得除了在学习工具外，对理论知识的学习才是重中之重，否则，即使进入了人工智能领域，码农也依然智能做搬砖的活儿。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Machine-Learning/" rel="tag"># Machine Learning</a>
+              <a href="/tags/TensorFlow/" rel="tag"># TensorFlow</a>
+              <a href="/tags/Deep-Learning/" rel="tag"># Deep Learning</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2017/03/16/brief-history-of-humankind/" rel="prev" title="【人类简史】读书笔记">
+      <i class="fa fa-chevron-left"></i> 【人类简史】读书笔记
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2017/04/17/csapp-bomblab/" rel="next" title="【深入理解计算机系统实验笔记】| Bomb Lab">
+      【深入理解计算机系统实验笔记】| Bomb Lab <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#TensorFlow-的起源"><span class="nav-number">1.</span> <span class="nav-text">TensorFlow 的起源</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#编程模型和基本概念"><span class="nav-number">2.</span> <span class="nav-text">编程模型和基本概念</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Operations-and-Kernels"><span class="nav-number">2.1.</span> <span class="nav-text">Operations and Kernels</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Session"><span class="nav-number">2.2.</span> <span class="nav-text">Session</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Variables"><span class="nav-number">2.3.</span> <span class="nav-text">Variables</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#实现"><span class="nav-number">3.</span> <span class="nav-text">实现</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#TensorFlow-在单个设备上执行"><span class="nav-number">3.1.</span> <span class="nav-text">TensorFlow 在单个设备上执行</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#TensorFlow-在多个设备上执行"><span class="nav-number">3.2.</span> <span class="nav-text">TensorFlow 在多个设备上执行</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#node-计算任务的分配"><span class="nav-number">3.2.1.</span> <span class="nav-text">node 计算任务的分配</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#设备间的通信"><span class="nav-number">3.2.2.</span> <span class="nav-text">设备间的通信</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#TensorFlow-在分布式系统上执行"><span class="nav-number">3.3.</span> <span class="nav-text">TensorFlow 在分布式系统上执行</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#容错"><span class="nav-number">3.3.1.</span> <span class="nav-text">容错</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TensorFlow-的高级特性"><span class="nav-number">4.</span> <span class="nav-text">TensorFlow 的高级特性</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#梯度计算（Gradient-Computation）"><span class="nav-number">4.1.</span> <span class="nav-text">梯度计算（Gradient Computation）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#数据流图的部分执行（Partial-Execution）"><span class="nav-number">4.2.</span> <span class="nav-text">数据流图的部分执行（Partial Execution）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#设备限制（Device-Constraints）"><span class="nav-number">4.3.</span> <span class="nav-text">设备限制（Device Constraints）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#控制流（Control-Flow）"><span class="nav-number">4.4.</span> <span class="nav-text">控制流（Control Flow）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#输入操作（Input-Operations）"><span class="nav-number">4.5.</span> <span class="nav-text">输入操作（Input Operations）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#队列（Queues）"><span class="nav-number">4.6.</span> <span class="nav-text">队列（Queues）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#容器（Container）"><span class="nav-number">4.7.</span> <span class="nav-text">容器（Container）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#优化"><span class="nav-number">5.</span> <span class="nav-text">优化</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2017/03/27/tensorflow-learning/";
+    this.page.identifier = "2017/03/27/tensorflow-learning/";
+    this.page.title = "TensorFlow 论文阅读笔记";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

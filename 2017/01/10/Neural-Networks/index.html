@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="非线性假设（Non-Linear Hypotheses）使用非线性的多项式可以帮助我们建立更好的分类模型。加入我们使用100个特征来构建一个非线性多项式模型，即使我们仅仅采用两两组合的方法，那么结果也将有超过5000个组合而成的模型，这对于一般的逻辑回归来说需要计算的特征太多了。 正是因为普通的逻辑回归不能很好地处理这么多特征，所以我们需要使用神经网络。 概念神经网络是由具有适应性的简单单元组成的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【机器学习课程笔记】| Neural Networks">
+<meta property="og:url" content="http://chuanleiguo.com/2017/01/10/Neural-Networks/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="非线性假设（Non-Linear Hypotheses）使用非线性的多项式可以帮助我们建立更好的分类模型。加入我们使用100个特征来构建一个非线性多项式模型，即使我们仅仅采用两两组合的方法，那么结果也将有超过5000个组合而成的模型，这对于一般的逻辑回归来说需要计算的特征太多了。 正是因为普通的逻辑回归不能很好地处理这么多特征，所以我们需要使用神经网络。 概念神经网络是由具有适应性的简单单元组成的">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-1-18/Artboard.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2017-1-18/Artboard1.png">
+<meta property="article:published_time" content="2017-01-10T01:26:23.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="MOOC">
+<meta property="article:tag" content="Machine Learning">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/images/2017-1-18/Artboard.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2017/01/10/Neural-Networks/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>【机器学习课程笔记】| Neural Networks | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2017/01/10/Neural-Networks/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          【机器学习课程笔记】| Neural Networks
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2017-01-10 09:26:23" itemprop="dateCreated datePublished" datetime="2017-01-10T09:26:23+08:00">2017-01-10</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/mooc/" itemprop="url" rel="index"><span itemprop="name">MOOC</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2017/01/10/Neural-Networks/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/01/10/Neural-Networks/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h1 id="非线性假设（Non-Linear-Hypotheses）"><a href="#非线性假设（Non-Linear-Hypotheses）" class="headerlink" title="非线性假设（Non-Linear Hypotheses）"></a>非线性假设（Non-Linear Hypotheses）</h1><p>使用非线性的多项式可以帮助我们建立更好的分类模型。加入我们使用100个特征来构建一个非线性多项式模型，即使我们仅仅采用两两组合的方法，那么结果也将有超过5000个组合而成的模型，这对于一般的逻辑回归来说需要计算的特征太多了。</p>
+<p>正是因为普通的逻辑回归不能很好地处理这么多特征，所以我们需要使用神经网络。</p>
+<h1 id="概念"><a href="#概念" class="headerlink" title="概念"></a>概念</h1><p>神经网络是由具有适应性的简单单元组成的广泛并行互联的网络，它的组织能够模拟生物神经系统对真实世界物体所作出的交互反应。</p>
+<h1 id="神经网络的表示"><a href="#神经网络的表示" class="headerlink" title="神经网络的表示"></a>神经网络的表示</h1><p>神经网络中最基本的处理单元被称为神经元（Neuron），它包含多个输入，和一个输出。我们也可以将每个神经元当做一个学习单元，每个单元均采纳多个特征作为输入，并根据本身的模型得到一个输出。将多个神经元按照一定层次组合起来，就得到了神经网络（Neural Network）。一个以逻辑回归模型作为自身学习模型的神经元可以用下图表示，其中的参数可称为“权重（Weight）”。</p>
+<p><img src="/images/2017-1-18/Artboard.png" alt="Artboard"></p>
+<p>$$ h_\theta(x)=\frac{1}{1+e^{-\theta^{T}x}} $$</p>
+<p>神经网络是许多逻辑单元按照不同层次组织起来的网络，每一层的输出变量是下一层的输出变量。以三层神经网络为例，第一层为输入层（Input Layer），中间一层为隐藏层（Hidden Layers），最后一层为输出层（Output Layer）。</p>
+<p><img src="/images/2017-1-18/Artboard1.png" alt="Artboard1"></p>
+<p>对于上图的模型，激活单元和输出分别表达为：</p>
+<p>$$a_1=g(\theta_{10}x_0 +\theta_{11}x_1+\theta_{12}x_2+\theta_{13}x_3)$$<br>$$a_2=g(\theta_{20}x_0 +\theta_{21}x_1+\theta_{22}x_2+\theta_{23}x_3)$$<br>$$a_3=g(\theta_{30}x_0 +\theta_{31}x_1+\theta_{32}x_2+\theta_{33}x_3)$$<br>$$h_{\theta}(x)=g(\theta_{10}^{(2)}a_0+\theta_{11}^{(2)}a_1+\theta_{12}^{(2)}a_2+\theta_{13}^{(2)}a_3)$$</p>
+<h2 id="正向传播（Forward-Propagation）"><a href="#正向传播（Forward-Propagation）" class="headerlink" title="正向传播（Forward Propagation）"></a>正向传播（Forward Propagation）</h2><p>我们可以使用向量化的方法来计算神经网络的值：</p>
+<p>$$g\Bigg( \begin{bmatrix}<br>\theta_{10}^{(1)} &amp; \theta_{11}^{(1)} &amp; \theta_{12}^{(1)} &amp; \theta_{13}^{(1)} \\<br>\theta_{20}^{(1)} &amp; \theta_{21}^{(1)} &amp; \theta_{22}^{(1)} &amp; \theta_{23}^{(1)} \<br>\theta_{30}^{(1)} &amp; \theta_{31}^{(1)} &amp; \theta_{32}^{(1)} &amp; \theta_{33}^{(1)}<br>\end{bmatrix} \times \begin{bmatrix}<br>x_0 \\ x_1 \\ x_2 \\ x_3<br>\end{bmatrix}\Bigg) = g\Bigg( \begin{bmatrix}<br>\theta_{10}^{(1)}x_0 + \theta_{11}^{(1)}x_1 + \theta_{12}^{(1)}x_2 + \theta_{13}^{(1)}x_3 \<br>\theta_{20}^{(1)}x_0 + \theta_{21}^{(1)}x_1 + \theta_{22}^{(1)}x_2 + \theta_{23}^{(1)}x_3 \<br>\theta_{30}^{(1)}x_0 + \theta_{31}^{(1)}x_1 + \theta_{32}^{(1)}x_2 + \theta_{33}^{(1)}x_3<br>\end{bmatrix}\Bigg) = \begin{bmatrix}<br>a_1^{(2)} \\ a_2^{(2)} \\ a_3^{(2)}<br>\end{bmatrix}$$</p>
+<p>本质上讲，神经网络能够通过学习得出其自身的一系列特征。在普通的逻辑回归中，我们被限制为使用数据中的原始特征$x_1, x2,\dots,x_n$，我们虽然可以使用一些二项式组合来组合这些特征，但是我们仍然受到这些原始特征的限制。在神经网络中，原始特征只是输入层，第三层也就是输出层做出的预测利用的是第二层的特征，而非输入层的原始特征，我们可以认为第二层中的特征是神经网络通过学习后自己得出的一系列用于预测输出变量的特征。</p>
+<h2 id="感知机与多层网络"><a href="#感知机与多层网络" class="headerlink" title="感知机与多层网络"></a>感知机与多层网络</h2><p>感知机（Perceptron）由两层神经元组成，输入层接收外界输入信号后传递给输出层，输出层是M-P神经元，亦称“阈值逻辑单元”。我们可以使用感知机来实现与、或、非运算。</p>
+<ul>
+<li>“与”（$x_1 \wedge x_2$）：令$\theta_0=-30, \theta_1=20, \theta_1=20$</li>
+<li>“或”（$x_1 \vee x_2$）：令$\theta_0=-10, \theta_1=20, \theta_1=20$</li>
+<li>“非”（$\neg x_1$）：令$\theta_0=10, \theta_1=-20$</li>
+</ul>
+<p>我们也可以利用组合神经元来组合成为更为复杂的神经网络以实现更复杂的运算，我们也可以使用多层神经网络来实现多分类任务。</p>
+<h1 id="参数学习"><a href="#参数学习" class="headerlink" title="参数学习"></a>参数学习</h1><h2 id="代价函数"><a href="#代价函数" class="headerlink" title="代价函数"></a>代价函数</h2><p>在逻辑回归中，我们的代价函数定义为：</p>
+<p>$$J(\theta)=-[\frac{1}{m}\sum_{i=1}^{m}(y^{(i)} \times log(h_{\theta}(x^{(i)}))+(1-y^{(i)}) \times log(1-h_{\theta}(x^{(i)})))]+\frac{\lambda}{2m}\sum_{j=1}^{m}\theta_{j}^{2}$$</p>
+<p>在逻辑回归中，我们只有一个输出变量，又称标量（scalar），也只有一个因变量y，但是在神经网络中，我们可以有很多输出变量，我们的$h_\theta(x)$是一个维度为K的向量，而且我们训练集中的因变量也是同样维度的一个向量，因此我们的代价函数会比逻辑回归更加复杂一些，为：</p>
+<p>$$J(\theta)=-\frac{1}{m}\Big[\sum_{i=1}^{m}\sum_{k=1}^{K}y_k^{(i)}log(h_{\theta}(x^{(i)}))_k + (1-y_k^{(i)})log(1-(h_{\theta}(x^{(i)}))_k)\Big]+\frac{\lambda}{2m}\sum_{l=1}^{L-1}\sum_{i=1}^{s_l}\sum_{j=1}^{s_j+1}(\theta_{ji}^{(l)})^2$$</p>
+<p>这个看起来复杂很多的代价函数背后的思想还是一样的，我们希望通过代价函数来观察算法预测的结果与真是情况的误差有多大，唯一不同的是，对于每一行特征，我们都会给出K个预测。我们可以对每一行特征都预测K个不同结果，然后再利用循环在K个预测中选择可能性最高的一个，将其与y中的实际数据进行比较。</p>
+<h2 id="反向传播算法（Back-Propagation）"><a href="#反向传播算法（Back-Propagation）" class="headerlink" title="反向传播算法（Back Propagation）"></a>反向传播算法（Back Propagation）</h2><p>在正向传播算法中，我们从第一层开始正向一层层进行计算，知道最后一层的$h_\theta(x)$。</p>
+<p>现在为了计算代价函数的偏导数$\frac{\partial}{\partial\theta_{ij}^{(i)}}J(\theta)$，我们需要采用反向传播算法，就是首先计算最后一层的误差，然后再一层一层反向求出各层的误差，直到倒数第二层。</p>
+<p>我们以一个四层的神经网络为例，最后一层的误差是激活单元的预测$a_{k}^{(4)}$与实际值$y_k$之间的误差。我们中$\delta$来表示：<br>$$\delta^{(4)}=a^{(4)}-y$$<br>我们利用这个误差值来计算前一层的误差：</p>
+<p>$${\delta}^{(3)}=({\theta}^{(3)})^{T}{\delta}^{(4)}.*g’(z^{(3)})$$</p>
+<p>其中$g’(z^{(3)})$是S形函数的导数，<br>$g’(z^{(3)})=a^{(3)}.*(1-a^{(3)})$。而$(\theta^{(3)})^{T}\delta^{(4)}$<br>则是权重导致的误差的和。下一步继续计算第二层的误差：</p>
+<p>$$\delta^{(2)}=(\theta^{(2)})^{T}\delta^{(3)}.*g’(z^{(2)})$$</p>
+<p>因为第一层是输入变量，不存在误差。我们有了所有的误差的表达式后，便可以计算代价函数的偏导数。假设我们不做任何归一化处理：</p>
+<p>$$\frac{\partial}{\partial\theta_{ij}^{(l)}}J(\theta)=a_{j}^{l}\delta_{i}^{l+1}$$</p>
+<p>反向传播算法的过程可以表述为：</p>
+<p>有训练集${(x^{(1)}, y^{(1)}),\dots,(x^{(m)}, y^{(m)})}$</p>
+<ul>
+<li>对于所有的$(l,i,j)$，设置$\delta_{ij}^{(l)}=0$<br>for traing_example t = 1 to m:</li>
+<li>$a^{(l)}=x^{(t)}$</li>
+<li>使用FP来计算$a^{(l)}$</li>
+<li>$\delta^{l} = a^{(l)} - y^{(t)}$</li>
+<li>$D_{i,j}=\frac{1}{m}(\delta_{ij}^{(l)}+\lambda\theta_{ij}^{(l)})$</li>
+</ul>
+<h2 id="梯度检验"><a href="#梯度检验" class="headerlink" title="梯度检验"></a>梯度检验</h2><p>当我们对一个较为复杂的模型（例如神经网络）使用梯度下降算法时，可能会存在一些不容易察觉的错误，意味着，虽然代价看上去在不断减小，但最终的结果可能不是最优解。</p>
+<p>为了避免这样的问题，我们采用一种叫做<strong>梯度数值检验</strong>（Numerical Gradient Checking）方法。这种方法的思想是通过估计梯度值来检验我们计算的导数值是否真的是我们要求的。</p>
+<p>对梯度的估计采用的方法是在代价函数上沿着切线的方向选择离两个点非常近的点然后计算两个点的平均值用以估计梯度。即对于某个特定的$\theta$，我们计算出在$\theta-\varepsilon$和$\theta+\varepsilon$的代价值，然后求两个代价的平均，用以估计在$\theta$处的代价值。</p>
+<h2 id="随机初始化"><a href="#随机初始化" class="headerlink" title="随机初始化"></a>随机初始化</h2><p>任何优化算法都需要一些初始的参数。到目前为止我们都是初始所有参数为0，这样的初始方法对于逻辑回归来说是可行的，但是对神经网络来说是不可行的。如果我们令所有的初始参数都为零，这意味着我们第二层的所有激活单元都会有相同的值。同理，如果我们初始所有的参数都为一个非0的数，结果也是一样的。</p>
+<p>所以，我们通常初始参数为正负$\varepsilon$之间的随机值。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>我们在使用神经网络时，第一件要做的事情就是要选择网络结构，即决定选择多少层以及决定每层分别有多少个单元。</p>
+<ul>
+<li>第一层的单元数既是我们训练集的特征数量</li>
+<li>最后一层的单元数是我们训练集的结果的类的数量</li>
+<li>如果隐藏层数大于1，确保每个隐藏层的单元个数相同，通常情况下隐藏层单元的个数越多越好</li>
+</ul>
+<p>训练神经网络的步骤为：</p>
+<ol>
+<li>参数的随机初始化</li>
+<li>利用正向传播方法计算所有的$h_{\theta}(x)$</li>
+<li>编写计算代价函数$J$的代码</li>
+<li>利用反向传播方法计算所有偏导数</li>
+<li>利用数值检验方法检验这些偏导数</li>
+<li>利用优化算法来最小化代价函数</li>
+</ol>
+<h1 id="深度学习（Deep-Learning）"><a href="#深度学习（Deep-Learning）" class="headerlink" title="深度学习（Deep Learning）"></a>深度学习（Deep Learning）</h1><p>一般来说，参数越多的模型复杂度越高、“容量”越大，能完成更复杂的学习任务。很深层的神经网络学习模型被称为深度学习模型。对神经网络模型，提高容量的方法就是增加隐藏层的数目。隐藏层多了，相应的神经元连接权、阈值等参数也就越多。然而，多隐层神经网络难以直接用BP算法进行训练，因为误差在多隐层内逆传播时，往往会“发散”而不能收敛到稳定状态。</p>
+<p>无监督逐层训练（Unsupervised Layer-wise Training）是多隐层网络训练的有效手段，其基本思想是每次训练一层隐节点，训练时将上一层隐节点的输出作为输入，而本层隐节点的输出作为下一层隐节点的输入，这称为“预训练”；在训练完成之后，再对整个网络进行“微调”训练。</p>
+<p>“预训练+微调”的做法可视为将大量参数分组，对每组先找到局部看起来比较好的设置，然后在基于这些局部较优的结果联合起来进行全局寻优。这样就在利用了模型大量参数所提供的自由度的同时，有效节省了训练开销。</p>
+<p>另一种节省开销的策略是“权值共享”（weight sharing），即让一组神经元使用相同的连接权。这个策略在卷积神经网络（Convolutional Neural Network）中发挥了重要作用。</p>
+<p>总的来说，深度学习是通过多层处理，逐渐将初始的“底层”特征表示转化为“高层”特征表示后，用“简单模型”即可完成复杂的分类等学习任务。由此，我们可以将深度学习理解为进行“特征学习”或表示学习。</p>
+<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><ol>
+<li><a href="https://www.amazon.cn/%E5%9B%BE%E4%B9%A6/dp/B01ARKEV1G" target="_blank" rel="noopener">机器学习</a> 周志华</li>
+<li><a href="https://www.coursera.org/learn/machine-learning/home" target="_blank" rel="noopener">Machine Learning</a> Stanford</li>
+</ol>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MOOC/" rel="tag"># MOOC</a>
+              <a href="/tags/Machine-Learning/" rel="tag"># Machine Learning</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2016/12/22/Linear-Regression/" rel="prev" title="【机器学习课程笔记】| 线性回归（Linear Regression）">
+      <i class="fa fa-chevron-left"></i> 【机器学习课程笔记】| 线性回归（Linear Regression）
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2017/03/02/%E8%8B%B1%E8%AF%AD%E5%AD%A6%E4%B9%A0%E7%9A%84%E5%B0%8F%E9%87%8C%E7%A8%8B%E7%A2%91/" rel="next" title="英语学习的小里程碑">
+      英语学习的小里程碑 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#非线性假设（Non-Linear-Hypotheses）"><span class="nav-number">1.</span> <span class="nav-text">非线性假设（Non-Linear Hypotheses）</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#概念"><span class="nav-number">2.</span> <span class="nav-text">概念</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#神经网络的表示"><span class="nav-number">3.</span> <span class="nav-text">神经网络的表示</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#正向传播（Forward-Propagation）"><span class="nav-number">3.1.</span> <span class="nav-text">正向传播（Forward Propagation）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#感知机与多层网络"><span class="nav-number">3.2.</span> <span class="nav-text">感知机与多层网络</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#参数学习"><span class="nav-number">4.</span> <span class="nav-text">参数学习</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#代价函数"><span class="nav-number">4.1.</span> <span class="nav-text">代价函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#反向传播算法（Back-Propagation）"><span class="nav-number">4.2.</span> <span class="nav-text">反向传播算法（Back Propagation）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#梯度检验"><span class="nav-number">4.3.</span> <span class="nav-text">梯度检验</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#随机初始化"><span class="nav-number">4.4.</span> <span class="nav-text">随机初始化</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#总结"><span class="nav-number">5.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#深度学习（Deep-Learning）"><span class="nav-number">6.</span> <span class="nav-text">深度学习（Deep Learning）</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#参考文献"><span class="nav-number">7.</span> <span class="nav-text">参考文献</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2017/01/10/Neural-Networks/";
+    this.page.identifier = "2017/01/10/Neural-Networks/";
+    this.page.title = "【机器学习课程笔记】| Neural Networks";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

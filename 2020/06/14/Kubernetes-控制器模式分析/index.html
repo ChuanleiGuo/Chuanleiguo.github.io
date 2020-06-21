@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="什么是“控制器模型“在 Kubernetes 中，Pod 是最小的 API 对象，是原子调度单位。Pod 通过对“容器”这个概念的进一步封装和抽象，添加更多属性和字段，使得描述及调度应用更加容易。而完成对 Pod 的调度和操作的逻辑就由控制器（Controller）实现。 控制器模型能够统一地实现对各种不同的对象或者资源的编排操作，保证对象和实际状态与对象的期望状态相同。对象的实际状态即直接访问">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kubernetes 控制器模式分析">
+<meta property="og:url" content="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="什么是“控制器模型“在 Kubernetes 中，Pod 是最小的 API 对象，是原子调度单位。Pod 通过对“容器”这个概念的进一步封装和抽象，添加更多属性和字段，使得描述及调度应用更加容易。而完成对 Pod 的调度和操作的逻辑就由控制器（Controller）实现。 控制器模型能够统一地实现对各种不同的对象或者资源的编排操作，保证对象和实际状态与对象的期望状态相同。对象的实际状态即直接访问">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/controller-structure.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/apiGroupVersion.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/controller.png">
+<meta property="article:published_time" content="2020-06-14T10:12:37.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.547Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="kubernetes">
+<meta property="article:tag" content="deployment">
+<meta property="article:tag" content="controller">
+<meta property="article:tag" content="pod">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/controller-structure.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Kubernetes 控制器模式分析 | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Kubernetes 控制器模式分析
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-06-14 18:12:37" itemprop="dateCreated datePublished" datetime="2020-06-14T18:12:37+08:00">2020-06-14</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/06/14/Kubernetes-控制器模式分析/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="什么是“控制器模型“"><a href="#什么是“控制器模型“" class="headerlink" title="什么是“控制器模型“"></a>什么是“控制器模型“</h2><p>在 Kubernetes 中，Pod 是最小的 API 对象，是原子调度单位。Pod 通过对“容器”这个概念的进一步封装和抽象，添加更多属性和字段，使得描述及调度应用更加容易。而完成对 Pod 的调度和操作的逻辑就由控制器（Controller）实现。</p>
+<p>控制器模型能够统一地实现对各种不同的对象或者资源的编排操作，保证对象和实际状态与对象的期望状态相同。对象的实际状态即直接访问 Kubernetes 的 ApiServer 得到的结果，而期望状态则来自于用户向集群提交的 Yaml 文件。以一个简单的部署了 Nginx 的 Deployment 控制器对象为例：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Deployment</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">2</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span></span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">nginx:stable</span></span><br><span class="line">        <span class="attr">ports:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">containerPort:</span> <span class="number">80</span></span><br></pre></td></tr></table></figure>
+
+<p>这个 Deployment 确保携带了 <code>app=nginx</code> 标签的 Pod 个数永远等于 <code>spec.replicas</code> 指定的个数，即 2 个。那么，当集群中携带了 <code>app=nginx</code> 标签的 Pod 个数大于 2 的时候，控制器会删除多余的 Pod；反之，则会新建 Pod。</p>
+<p>控制器模型的遵循 Kubernetes 中的一个通用编排模式：控制循环（control loop）。对于该 Deployment 我们可以用一段伪代码来描述这个控制循环：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> &#123;</span><br><span class="line">    actualState := getActualStateOfDeployment(<span class="string">"nginx"</span>)</span><br><span class="line">    expectedState := getExpectedStateOfDeployment(<span class="string">"nginx"</span>)</span><br><span class="line">    <span class="keyword">if</span> actualState == expectedState &#123;</span><br><span class="line">        <span class="comment">// 什么都不做</span></span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="comment">// 执行编排动作，将实际状态调整为期望状态</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>上述的伪代码中：</p>
+<ol>
+<li>Deployment 控制器从 Etcd 中查询所有携带了 <code>app=nginx</code> 标签的 Pod，并计数得到实际状态；</li>
+<li>根据 <code>spec.replicas</code> 得到期望状态；</li>
+<li>Deployment 控制器根据比较两个状态的结果确定应该创建还是删除已有的 Pod。</li>
+</ol>
+<p>像 Deployment 这种控制器的设计原理，实现了“一种对象控制另一种对象”。控制器对象本身负责定义被管理对象的期望状态，而被控制对象的定义则来自一个模板，即 PodTemplate。所以类似 Deployment 这样一个控制器，由上半部分包含了控制器定义及期望状态，加上下半部分被控制对象的模板组成。</p>
+<img src="/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/controller-structure.png" class="">
+
+<p>Kubernetes 中通过使用控制器模型这个统一的编排框架，不同的控制器可以在具体的过程中设计不同的业务逻辑，达到不同的编排效果。</p>
+<h3 id="“控制器模型“与“事件驱动模型“的区别"><a href="#“控制器模型“与“事件驱动模型“的区别" class="headerlink" title="“控制器模型“与“事件驱动模型“的区别"></a>“控制器模型“与“事件驱动模型“的区别</h3><p>笔者在接触 Kubernetes 之前，在业务中维持对象的状态一直采用的是“事件驱动模型”，即通过回调或者消息队列得到指令或事件后，执行一系列预先定义好的逻辑。这时，业务系统“被动”地等到具体事件的到来，并触发相应的操作。由于事件往往是一次性的，这导致在执行指令失败的情况下比较难以处理，通常是进行日志保存、报警及回滚操作。 </p>
+<p>而在 Kubernetes 中，控制器模型是持续、“主动”地观察目标对象的状态，不断尝试，最终实现实际状态与期望状态的一致。</p>
+<h2 id="声明式-API"><a href="#声明式-API" class="headerlink" title="声明式 API"></a>声明式 API</h2><p>在 Kubernetes 项目中，存在一个叫做 <code>kube-controller-manager</code> 的组件。这个组件，就是一系列控制器的集合。在 Kubernetes 项目的 <code>pkg/controller</code> 目录：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">ls -d */</span><br><span class="line">apis/                   cronjob/                endpoint/               job/                    podautoscaler/          resourcequota/          testutil/               volume/</span><br><span class="line">bootstrap/              daemon/                 endpointslice/          namespace/              podgc/                  service/                ttl/</span><br><span class="line">certificates/           deployment/             garbagecollector/       nodeipam/               replicaset/             serviceaccount/ </span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>这个目录的每个控制器都遵循通用的编排模式：控制循环（control loop），Deployment Controller 就是其中之一。</p>
+<p>使用遵循“控制器模型”实现的各类 Controller，同 Kubernetes 里 API 对象的 CRUD 接口进行协作，完成用户业务逻辑的编写，也成为了 Kubernetes 的编程范式，实现了 Kubernetes 的声明式 API。</p>
+<p>为了创建 Kubernetes 中的 API 对象，无一例外，用户都需要编写一个对应的 Yaml 文件交给 Kubernetes，这正是声明式 API 的一个要素。</p>
+<p>但是声明式 API 并不仅仅意味着用 Yaml 文件代替命令行操作。例如，我们通过 <code>kubectl create</code> 命令创建 Deployment：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kubectl create -f nginx.yaml</span><br></pre></td></tr></table></figure>
+
+<p>通过 <code>kubectl set image</code> 命令更新容器镜像：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kubectl set image deployment&#x2F;nginx-deployment nginx&#x3D;nginx:1.16.1</span><br></pre></td></tr></table></figure>
+
+<p>等等操作并不是声明式 API，这些应该被称为“命令式配置文件操作”。真正的声明式 API 是 <code>kubectl apply</code> 命令。用户可以使用 <code>kubectl apply</code> 创建 Deployment，之后修改 Yaml 并再次调用该命令将修改提交到 Kubernetes 的 ApiServer。<code>kubectl create</code> 及 <code>kubectl replace</code> 的执行过程，是使用新的 Yaml 文件中的 API 对象去<strong>替换</strong>原有对象；而 <code>kubectl apply</code> 则是执行了一个对原有 API 对象的 <strong>PATCH 操作</strong>。</p>
+<p>更进一步，kube-apiserver 在响应命令式请求（如，<code>kubectl replace</code>）时，一次只能处理一个写请求，否则可能产生冲突。而对于声明式请求（如，<code>kubectl apply</code>），一次能处理多个写操作，并且具备 Merge 能力。</p>
+<p>所谓“声明式”，指的就是用户只需要提交一个定义好的 API 对象来“声明”期望的状态；“声明式” API 允许有多个 API 写端，以 PATCH 方式对 API 对象进行修改，而无需关心本地原始 Yaml 文件的内容；最后，Kubernetes 可以完成对实际状态和期望状态的调谐过程。</p>
+<h3 id="声明式-API-的设计"><a href="#声明式-API-的设计" class="headerlink" title="声明式 API 的设计"></a>声明式 API 的设计</h3><p>为了回答当一个 Yaml 文件被提交给 Kubernetes 后，它是如何创建出一个 API 对象的，我们需要知道在 Kubernetes 中，一个 API 对象在 Etcd 中的完整资源路径，是由 Group（API 组）、Version(API 版本) 和 Resource（API 资源类型）组成的。</p>
+<img src="/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/apiGroupVersion.png" class="">
+
+<p>可以看到 Kubernetes 中的 API 对象的组织方式是层层递进的。以 Deployment 为例，那么 Yaml 的开始部分的写法为：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Deployment</span></span><br><span class="line"><span class="string">...</span></span><br></pre></td></tr></table></figure>
+
+<p>在这个 Yaml 文件中，组（Group）为 <code>apps</code>，版本（Version）为 <code>v1</code>，资源类型（Resource）为 <code>Deployment</code>。当提交这个 Yaml 文件之后，Kubernetes 将会把这个 Yaml 文件里面描述的内容转换成集群内一个 Deployment 对象。</p>
+<p>为了找到 API 对象的定义，首先 Kubernetes 会匹配 API 对象的组。对于核心 API 对象如 Pod、Node 等不需要 Group。所以对于核心对象，Kubernetes 会直接在 <code>/api</code> 这个层级下进行下一步匹配。而 Deployment 等非核心 API，Kubernetes 就需要在 <code>/apps</code> 下查找对应的 Group。</p>
+<p>然后，Kubernetes 进一步匹配 API 对象的版本。对于 Deployment 对象来说，Kubernetes 在 <code>/apps</code> 这个 Group 下，匹配到的版本就是 <code>v1</code>。API 版本话管理保证了向后兼容。</p>
+<p>最后 Kubernetes 匹配 API 对象的资源类型。最后，Kubernetes 就得到，要创建的对象是 <code>/apps/v1/</code> 下的 Deployment 对象。</p>
+<h3 id="自定义资源类型（CustomResourceDefinition-CRD）"><a href="#自定义资源类型（CustomResourceDefinition-CRD）" class="headerlink" title="自定义资源类型（CustomResourceDefinition, CRD）"></a>自定义资源类型（CustomResourceDefinition, CRD）</h3><p>在 Kubernetes 中除了预定义的 API 对象外，用户可以利用 CRD 来向 kube-apiserver 中新增自定义 API 资源类型。例如，要在集群中添加一个描述网络资源的自定义 API 对象 Network，用以描述期望的网络参数。</p>
+<p>这个 Network 对象的 Yaml 文件可以如下：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">sample.k8s.io/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Network</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">    <span class="attr">name:</span> <span class="string">sample-net</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">    <span class="attr">cidr:</span> <span class="string">"192.168.0.0/16"</span></span><br><span class="line">    <span class="attr">gatewar:</span> <span class="string">"192.168.0.1"</span></span><br></pre></td></tr></table></figure>
+
+<p>那么，Kubernetes 应该如何知道该 API 对象 <code>sample.k8s.io/v1/netword</code> 的存在呢？其实，该 Yaml 文件是一个自定义 API 资源，也叫 Custom Resource（CR）。为了让 Kubernetes 知道这个 CR，就需要该 CR 的定义是什么，即CustomResourceDefinition（CRD）。</p>
+<p>一个 CRD 的定义 Yaml 为：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">apiextensions.k8s.io/v1beta1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">CustomResourceDefinition</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">networks.sample.k8s.io</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">group:</span> <span class="string">sample.k8s.io</span></span><br><span class="line">  <span class="attr">version:</span> <span class="string">v1</span></span><br><span class="line">  <span class="attr">names:</span></span><br><span class="line">    <span class="attr">kind:</span> <span class="string">Network</span></span><br><span class="line">    <span class="attr">plural:</span> <span class="string">networks</span></span><br><span class="line">  <span class="attr">scope:</span> <span class="string">Namespaced</span></span><br></pre></td></tr></table></figure>
+
+<p>文件中，指定了 “group: sample.k8s.io” 及 “version: v1”，也指定了这个 CR 的资源类型叫做 Network，复数是 networks。也声明了它的 scope 是 Namespaced，即这个 Network 是一个属于命名空间的对象。</p>
+<p>通过执行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kubectl apply -f network.yaml</span><br></pre></td></tr></table></figure>
+
+<p>即可在集群中创建 Network 对象的 CRD。</p>
+<h3 id="自定义控制器"><a href="#自定义控制器" class="headerlink" title="自定义控制器"></a>自定义控制器</h3><p>“声明式 API” 并不像 “命令式 API” 那样有着明显的执行逻辑，这就使得集群声明式 API 的业务功能实现，通常需要控制器模式来监听 API 对象的变化，然后以此来决定实际需要执行的具体工作。</p>
+<p>要实现一个自定义控制器，需要：</p>
+<ol>
+<li>根据 kubeconfig 或者以 InClusterCofig 初始化用于访问集群 API 对象的 <code>kubeClient</code>，及用于访问自定义对象的自定义 Client，如 <code>networkClient</code>;</li>
+<li>利用自定义对象的 Client 初始化对应的 <code>InformorerFactory</code>, 并使用它生成自定义对象的 Informer， 传给 controller；</li>
+<li>启动 informer 及 controller；</li>
+</ol>
+<p>在 Kubernetes 中，一个自定义控制器的工作原理，可以用下图表示。</p>
+<img src="/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/controller.png" class="" title="自定义控制器的工作流程示意图">
+
+<p>控制器的第一件事，是从 Kubernetes 的 APIServer 里获取关心的对象。这个操作，依赖 Informer 代码库完成。Informer 与 API 对象是一一对应的。</p>
+<p>在创建 InformerFactory 的时候需要传递一个 client，实际上，Informer 正式利用这个 Client，与 APIServer 建立的连接。不过真正维护这个连接的，则是  Informer 所使用的 Reflector 包。</p>
+<p>Reflector 使用被称为 <strong>ListAndWatch</strong> 的方法，来获取并监听目标对象的实例变化。</p>
+<p>在 ListAndWatch 机制下，一旦 APIServer 端有新的对象实例被创建、删除或更新，Reflector 都会收到事件通知。这时，该事件及它对应的 API 对象这个组合，就被称为增量（Delta），它会被放入一个 Delta FIFO Queue 中。</p>
+<p>另一方面，Informer 会不断从这个 Delta FIFO Queue 里读取（Pop）增量。每拿到一个增量，Informer 就会判断这个增量里的事件类型，然后创建或者更新本地对象的缓存。这个缓存，在 Kubernetes 中一般被叫做 Store。</p>
+<p>例如，如果该事件类型是 Added，那么 Informer 就会通过一个叫做 Indexer 的库把这个增量里面的 API 对象保存在本地缓存中，并为它创建索引。相反，如果增量的事件是 Deleted，那么 Informer 就会从本地缓存中删除这个对象。</p>
+<p>这个同步本地缓存的工作，是 Informer 的第一个职责，也是它最重要的职责。</p>
+<p>Informer 的第二个职责，就是根据这些事件的类型，触发事先注册好的 ResourceEventHandler。这些 Handler 需要在创建控制器的时候注册给它对应的 Informer。</p>
+<p>一个控制器的定义可以如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">NewController</span><span class="params">(</span></span></span><br><span class="line"><span class="function"><span class="params">  kubeclientset kubernetes.Interface,</span></span></span><br><span class="line"><span class="function"><span class="params">  networkclientset clientset.Interface,</span></span></span><br><span class="line"><span class="function"><span class="params">  networkInformer informers.NetworkInformer)</span> *<span class="title">Controller</span></span> &#123;</span><br><span class="line"></span><br><span class="line">    controller := &amp;Controller&#123;</span><br><span class="line">        kubeclientset:    kubeclientset,</span><br><span class="line">        networkclientset: networkclientset,</span><br><span class="line">        networksLister:   networkInformer.Lister(),</span><br><span class="line">        networksSynced:   networkInformer.Informer().HasSynced,</span><br><span class="line">        workqueue:        workqueue.NewNamedRateLimitingQueue(...,  <span class="string">"Networks"</span>),</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    networkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs&#123;</span><br><span class="line">    AddFunc: controller.enqueueNetwork,</span><br><span class="line">    UpdateFunc: <span class="function"><span class="keyword">func</span><span class="params">(old, <span class="built_in">new</span> <span class="keyword">interface</span>&#123;&#125;)</span></span> &#123;</span><br><span class="line">        oldNetwork := old.(*samplecrdv1.Network)</span><br><span class="line">        newNetwork := <span class="built_in">new</span>.(*samplecrdv1.Network)</span><br><span class="line">        <span class="keyword">if</span> oldNetwork.ResourceVersion == newNetwork.ResourceVersion &#123;</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">        &#125;</span><br><span class="line">        controller.enqueueNetwork(<span class="built_in">new</span>)</span><br><span class="line">    &#125;,</span><br><span class="line">    DeleteFunc: controller.enqueueNetworkForDelete,</span><br><span class="line"> <span class="keyword">return</span> controller</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>需要注意的是，在这个自定义控制器里面，还设置了一个工作队列（work queue），它正是图中间的 WorkQueue。这个工作队列的作用是，负责同步 Informer 和控制循环之间的数据。</p>
+<p>然后，为 Informer 添加了三个 Handler，分别对应 API 对象的添加、更新和删除事件，而具体的处理操作则是将事件对应的 API 对象加入到工作队列中。实例入队列的不是 API 对象本身，而是它们的 key，及 <code>{namespace}/{name}</code>。</p>
+<p>而控制循环，则是不断从工作队列里拿到 Key，然后开始执行真正的控制循环。</p>
+<p>所以，Informer 其实就是一个带有本地缓存和索引机制的，可以注册 EventHandler 的 client。它是自定义控制器跟 APIServer 进行数据同步的重要组件。Informer 通过 ListAndWatch 方法，将 APIServer 中的 API 对象缓存在了本地，并负责更新和维护这个缓存。</p>
+<p>ListAndWatch 首先通过 List API 获取所有最新版本的 API 对象；然后再通过 Watch API 实时更新本地缓存，并且调用这些事件对应的 EventHandler。</p>
+<p>此外，每经过 resyncPeriod 指定的时间，Informer 维护的本地缓存，都会使用最近一次 List 返回的结果强制更新一次，从而保证缓存的有效性。这个强制更新的操作叫做 <code>resync</code>。</p>
+<p>需要注意，这个定时 resync 的操作，也会触发 informer 的“更新”事件。但是此时，“更新”事件对应的 Network 实际上没有变化，这种情况下，Informer 不需要对这个更新事件再做进一步处理。</p>
+<p>以上，就是 Informer 的工作原理了。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>控制器模型能够统一地实现对各种不同的对象或者资源的编排操作，保证对象和实际状态与对象的期望状态相同。对象的实际状态即直接访问 Kubernetes 的 ApiServer 得到的结果，而期望状态则来自于用户向集群提交的 Yaml 文件。</p>
+<p>所谓“声明式”，指的就是用户只需要提交一个定义好的 API 对象来“声明”期望的状态；“声明式” API 允许有多个 API 写端，以 PATCH 方式对 API 对象进行修改，而无需关心本地原始 Yaml 文件的内容；最后，Kubernetes 可以完成对实际状态和期望状态的调谐过程。</p>
+<p>Informer 是一个自带缓存和索引机制，可以触发 Handler 的客户端，缓存被称为 Store，索引被称为 Index。<br>Informer 使用 Reflector 报，通过 ListAndWatch 机制获取并监听 API 对象变化。</p>
+<p>Informer 和 Reflector 之间使用一个增量先进先出队列来协同，而Informer 与控制循环之间则使用一个工作队列来协同。</p>
+<h2 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h2><ol>
+<li><a href="https://time.geekbang.org/column/article/40583" target="_blank" rel="noopener">谈谈控制器模型 — 极客时间</a></li>
+<li><a href="https://time.geekbang.org/column/article/41876" target="_blank" rel="noopener">声明式 API — 极客时间</a></li>
+<li><a href="https://time.geekbang.org/column/article/42076" target="_blank" rel="noopener">编写自定义控制器 — 极客时间</a></li>
+</ol>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/kubernetes/" rel="tag"># kubernetes</a>
+              <a href="/tags/deployment/" rel="tag"># deployment</a>
+              <a href="/tags/controller/" rel="tag"># controller</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/05/16/Kubernetes-Pod-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/index/" rel="prev" title="Kubernetes Pod 的设计与实现">
+      <i class="fa fa-chevron-left"></i> Kubernetes Pod 的设计与实现
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2020/06/21/Logistic-Regression/" rel="next" title="【机器学习课程笔记】| Logistic Regression">
+      【机器学习课程笔记】| Logistic Regression <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是“控制器模型“"><span class="nav-number">1.</span> <span class="nav-text">什么是“控制器模型“</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#“控制器模型“与“事件驱动模型“的区别"><span class="nav-number">1.1.</span> <span class="nav-text">“控制器模型“与“事件驱动模型“的区别</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#声明式-API"><span class="nav-number">2.</span> <span class="nav-text">声明式 API</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#声明式-API-的设计"><span class="nav-number">2.1.</span> <span class="nav-text">声明式 API 的设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#自定义资源类型（CustomResourceDefinition-CRD）"><span class="nav-number">2.2.</span> <span class="nav-text">自定义资源类型（CustomResourceDefinition, CRD）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#自定义控制器"><span class="nav-number">2.3.</span> <span class="nav-text">自定义控制器</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文献"><span class="nav-number">4.</span> <span class="nav-text">参考文献</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/";
+    this.page.identifier = "2020/06/14/Kubernetes-控制器模式分析/";
+    this.page.title = "Kubernetes 控制器模式分析";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

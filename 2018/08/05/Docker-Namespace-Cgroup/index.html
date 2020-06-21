@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="最近工作上需要使用 Docker，在阅读「第一本 Docker 书」后了解了如何成为 Docker 的用户，但对 Docker 中用到技术却不甚了解。都说 Docker 是「新瓶装旧球」，文中笔者将学习到的 Docker 基础技术中的 Namespace，Cgroup 与 AUFS 记录如下。 NamespaceLinux Namespace 是 Linux 内核提供的一个功能，可以实现系统资源">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Docker 基础知识之 Namespace, Cgroup">
+<meta property="og:url" content="http://chuanleiguo.com/2018/08/05/Docker-Namespace-Cgroup/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="最近工作上需要使用 Docker，在阅读「第一本 Docker 书」后了解了如何成为 Docker 的用户，但对 Docker 中用到技术却不甚了解。都说 Docker 是「新瓶装旧球」，文中笔者将学习到的 Docker 基础技术中的 Namespace，Cgroup 与 AUFS 记录如下。 NamespaceLinux Namespace 是 Linux 内核提供的一个功能，可以实现系统资源">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/uts-pstree.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/uts-ns.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/hostname-chuan.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/hostname-main.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/ipc-main.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/ipc-chuan.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/pid-main.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/pid-chuan.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/mount-main.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/mount-chuan.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/mount-chuan-ps.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/user-main.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/user-chuan.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/network-main.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/network-chuan.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/cgroup-mount.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/cgroup-tree.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/cgroup-mv.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/cgroup-mem.png">
+<meta property="og:image" content="http://chuanleiguo.com/images/2018-08-05/cgroup-stress.png">
+<meta property="article:published_time" content="2018-08-05T14:14:46.000Z">
+<meta property="article:modified_time" content="2020-06-21T08:44:11.551Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="docker">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/images/2018-08-05/uts-pstree.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2018/08/05/Docker-Namespace-Cgroup/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Docker 基础知识之 Namespace, Cgroup | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2018/08/05/Docker-Namespace-Cgroup/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Docker 基础知识之 Namespace, Cgroup
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2018-08-05 22:14:46" itemprop="dateCreated datePublished" datetime="2018-08-05T22:14:46+08:00">2018-08-05</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-21 16:44:11" itemprop="dateModified" datetime="2020-06-21T16:44:11+08:00">2020-06-21</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2018/08/05/Docker-Namespace-Cgroup/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2018/08/05/Docker-Namespace-Cgroup/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>最近工作上需要使用 Docker，在阅读「<a href="https://www.amazon.cn/dp/B01E5P05KU/ref=sr_1_1?s=books&ie=UTF8&qid=1532857475&sr=1-1&keywords=第一本docker书" target="_blank" rel="noopener">第一本 Docker 书</a>」后了解了如何成为 Docker 的用户，但对 Docker 中用到技术却不甚了解。都说 Docker 是「新瓶装旧球」，文中笔者将学习到的 Docker 基础技术中的 Namespace，Cgroup 与 AUFS 记录如下。</p>
+<h2 id="Namespace"><a href="#Namespace" class="headerlink" title="Namespace"></a>Namespace</h2><p>Linux Namespace 是 Linux 内核提供的一个功能，可以实现系统资源的隔离，如：PID、User ID、Network 等。Linux 中的 chroot 命令可以将当前目录设置为根目录，使得用户的操作被限制在当前目录之下而不影响其他目录。</p>
+<p>假设我们成立了一家向外售卖计算资源的公司，用户购买了一个实例在运行自己的应用。如果某些用户能够进入到其他人的实例中，修改或关闭其他实例中应用的状态，那么就会导致不同用户之间相互影响；用户的某些操作可能需要 root 权限，假如我们给每个用户都赋予了 root 权限，那么我们的机器也就没有任何安全性可言了。使用 Namespace，Linux 可以做到 UID 级别的隔离，也就是说，UID 为 n 的用户在自己的 Namespace 中是有 root 权限的，但是在真实的物理机上，他仍然是 UID 为 n 的用户。</p>
+<p>目前 Linux 共实现了 6 种不同的 Namespace。</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>系统调用参数</th>
+<th>内核版本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Mount Namespace</td>
+<td>CLONE_NEWNS</td>
+<td>2.4.19</td>
+</tr>
+<tr>
+<td>UTS Namespace</td>
+<td>CLONE_NEWUTS</td>
+<td>2.6.19</td>
+</tr>
+<tr>
+<td>IPC Namespace</td>
+<td>CLONE_NEWIPC</td>
+<td>2.6.19</td>
+</tr>
+<tr>
+<td>PID Namespace</td>
+<td>CLONE_NEWPID</td>
+<td>2.6.24</td>
+</tr>
+<tr>
+<td>Network Namespace</td>
+<td>CLONE_NEWNET</td>
+<td>2.6.29</td>
+</tr>
+<tr>
+<td>User Namespace</td>
+<td>CLONE_NEWUSER</td>
+<td>3.8</td>
+</tr>
+</tbody></table>
+<h3 id="UTS-Namespace"><a href="#UTS-Namespace" class="headerlink" title="UTS Namespace"></a>UTS Namespace</h3><blockquote>
+<p>UTS namespaces allow a single system to appear to have different host and domain names to different processes.</p>
+</blockquote>
+<p>UTS(UNIX Timesharing System) Namespace 可以用来隔离 nodename 和 domainname 两个系统标识。在 UTS Namespace 中，每个 Namespace 可以有自己的 hostname。</p>
+<p>我们运行下面程序：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    cmd := exec.Command(<span class="string">"zsh"</span>)</span><br><span class="line">    cmd.SysProcAttr = &amp;syscall.SysProcAttr&#123;</span><br><span class="line">        Cloneflags: syscall.CLONE_NEWUTS,</span><br><span class="line">    &#125;</span><br><span class="line">    cmd.Stdin = os.Stdin</span><br><span class="line">    cmd.Stdout = os.Stdout</span><br><span class="line">    cmd.Stderr = os.Stderr</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> err := cmd.Run(); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Fatal(err)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这段代码主要是通过系统调用 <code>clone</code>，并传入 <code>CLONE_NEWUTS</code> 作为参数创建一个新进程，并在新进程内运行 <code>zsh</code> 命令。在 Ubuntu 14.04 上运行这段代码，就可以进入一个交互环境，在环境中运行 <code>ps -af --forest</code> 就可以看到如下的进程树：</p>
+<p><img src="/images/2018-08-05/uts-pstree.png" alt="UTS PS"></p>
+<p>验证下父进程和子进程是否在同一个 UTS Namespace 中：</p>
+<p><img src="/images/2018-08-05/uts-ns.png" alt="UTS NS"></p>
+<p>可以看到他们的 UTS Namespace 的编号不同。因为 UTS Namespace 对 hostname 做了隔离，所以在这个环境内修改 hostname 不会影响外部主机。</p>
+<p>在目前的 zsh 环境中我们修改 hostname 并打印:</p>
+<p><img src="/images/2018-08-05/hostname-chuan.png" alt="hostname-chuan"></p>
+<p>在宿主机上打印 hostname：</p>
+<p><img src="/images/2018-08-05/hostname-main.png" alt="hostname-root"></p>
+<p>可以看到，外部的 hostname 没有被内部的修改所影响。</p>
+<h3 id="IPC-Namespace"><a href="#IPC-Namespace" class="headerlink" title="IPC Namespace"></a>IPC Namespace</h3><blockquote>
+<p>IPC namespaces isolate processes from SysV style inter-process communication.</p>
+</blockquote>
+<p>IPC(Interprocess Communication) Namespace 用来隔离 System V IPC 和 POSIX message queues。每一个 IPC Namespace 都有自己的 System V IPC 和 POSIX message queue。</p>
+<p>我们在上一段代码的基础上增加 <code>CLONE_NEWIPC</code> 标识，表示我们要创建 IPC Namespace。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    cmd := exec.Command(<span class="string">"zsh"</span>)</span><br><span class="line">    cmd.SysProcAttr = &amp;syscall.SysProcAttr&#123;</span><br><span class="line">        Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC,</span><br><span class="line">    &#125;</span><br><span class="line">    cmd.Stdin = os.Stdin</span><br><span class="line">    cmd.Stdout = os.Stdout</span><br><span class="line">    cmd.Stderr = os.Stderr</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> err := cmd.Run(); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Fatal(err)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>在宿主器机查看并创建一个 message queue：</p>
+<p><img src="/images/2018-08-05/ipc-main.png" alt="ipc-main"></p>
+<p>运行代码并查看 message queue：</p>
+<p><img src="/images/2018-08-05/ipc-chuan.png" alt="ipc-chuan"></p>
+<h3 id="PID-Namespace"><a href="#PID-Namespace" class="headerlink" title="PID Namespace"></a>PID Namespace</h3><blockquote>
+<p>The PID namespace provides processes with an independent set of process IDs (PIDs) from other namespaces.</p>
+</blockquote>
+<p>PID(Process ID) Namespace 可以用来隔离进程 ID。同一个进程在不同的 PID Namespace 中可以拥有不同的 PID。在 Docker Container 中，使用 <code>ps -ef</code> 可以看到启动容器的进程 PID 为 1，但是在宿主机上，该进程却又有不同的 PID。</p>
+<p>继续在代码上添加 <code>CLONE_NEWPID</code> 为子进程创建 PID Namespace。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    cmd := exec.Command(<span class="string">"zsh"</span>)</span><br><span class="line">    cmd.SysProcAttr = &amp;syscall.SysProcAttr&#123;</span><br><span class="line">        Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID,</span><br><span class="line">    &#125;</span><br><span class="line">    cmd.Stdin = os.Stdin</span><br><span class="line">    cmd.Stdout = os.Stdout</span><br><span class="line">    cmd.Stderr = os.Stderr</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> err := cmd.Run(); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Fatal(err)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>运行代码，首先在宿主机上查看进程树：</p>
+<p><img src="/images/2018-08-05/pid-main.png" alt="pid-main"></p>
+<p>可以看到 zsh 的 PID 为 11321。在 Namespace 中打印进程 PID：</p>
+<p><img src="/images/2018-08-05/pid-chuan.png" alt="pid-chuan"></p>
+<p>可以看到，打印出的当前 Namespace 的 PID 为 1，也就是说 11321 的进程被映射到 Namespace 中后 PID 为 1。</p>
+<h3 id="Mount-Namespace"><a href="#Mount-Namespace" class="headerlink" title="Mount Namespace"></a>Mount Namespace</h3><blockquote>
+<p>Mount namespaces control mount points.</p>
+</blockquote>
+<p>Mount Namespace 用来隔离各个进程看到的挂载点视图。在不同的 Namespace 中，看到的挂载点文件系统层次是不一样的。在 Mount Namespace 中调用 <code>mount</code> 和 <code>unmount</code> 仅仅会影响当前 Namespace 内的文件系统，而对全局文件系统是没有影响的。</p>
+<p>在代码中，我们继续加入 <code>CLONE_NEWNS</code> 标识。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    cmd := exec.Command(<span class="string">"zsh"</span>)</span><br><span class="line">    cmd.SysProcAttr = &amp;syscall.SysProcAttr&#123;</span><br><span class="line">        Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,</span><br><span class="line">    &#125;</span><br><span class="line">    cmd.Stdin = os.Stdin</span><br><span class="line">    cmd.Stdout = os.Stdout</span><br><span class="line">    cmd.Stderr = os.Stderr</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> err := cmd.Run(); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Fatal(err)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>首先运行代码，然后查看 <code>/proc</code> 的文件内容：</p>
+<p><img src="/images/2018-08-05/mount-main.png" alt="mount-main"></p>
+<p>可以看到宿主机的 <code>/proc</code> 中文件较多，其中的数字是对应进程的相关信息。下面，将 <code>/proc</code> mount 到 Namespace 中。</p>
+<p><img src="/images/2018-08-05/mount-chuan.png" alt="mount-chuan"></p>
+<p>可以看到现在以 PID 命名的文件夹明显减少。下面使用 <code>ps -ef</code> 查看系统进程：</p>
+<p><img src="/images/2018-08-05/mount-chuan-ps.png" alt="mount-chuan-ps"></p>
+<p>可以看到，在当前的 Namespace 中，zsh 是 PID 为 1 的进程。这就说明当前 Namespace 中的 mount 和外部是隔离的，mount 操作没有影响到外部。Docker 的 volumn 正是利用了这个特性。</p>
+<h3 id="User-Namespace"><a href="#User-Namespace" class="headerlink" title="User Namespace"></a>User Namespace</h3><blockquote>
+<p>User namespaces are a feature to provide both privilege isolation and user identification segregation across multiple sets of processes.</p>
+</blockquote>
+<p>User Namespace 主要是隔离用户的用户组 ID。也就是说，一个进程的 User ID 和 Group ID 在 User Namespace 内外可以是不同的。比较常用的是，在宿主机上以一个非 root 用户运行创建一个 User Namespace，然后在 User Namespace 中被映射为了 root 用户。这意味着这个进程在 User Namespace 中有 root 权限，但是在宿主机上却没有 root 权限。</p>
+<p>继续修改代码，添加 <code>CLONE_NEWUSER</code> 标识。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    cmd := exec.Command(<span class="string">"zsh"</span>)</span><br><span class="line">    cmd.SysProcAttr = &amp;syscall.SysProcAttr&#123;</span><br><span class="line">    Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID |</span><br><span class="line">        syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER,</span><br><span class="line">    &#125;</span><br><span class="line">    cmd.Stdin = os.Stdin</span><br><span class="line">    cmd.Stdout = os.Stdout</span><br><span class="line">    cmd.Stderr = os.Stderr</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> err := cmd.Run(); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Fatal(err)</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    os.Exit(<span class="number">1</span>)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>首先在宿主机上查看当前用户和用户组：</p>
+<p><img src="/images/2018-08-05/user-main.png" alt="user-main"></p>
+<p>接下来运行程序，并查看用户组：</p>
+<p><img src="/images/2018-08-05/user-chuan.png" alt="user-chuan"></p>
+<p>可以看到，UID 是不同的，说明 User Namespace 生效了。</p>
+<h3 id="Network-Namespace"><a href="#Network-Namespace" class="headerlink" title="Network Namespace"></a>Network Namespace</h3><blockquote>
+<p>Network namespaces virtualize the network stack. On creation a network namespace contains only a loopback interface.</p>
+</blockquote>
+<p>Network Namespace 用来隔离网络设置、IP 地址和端口号等网络栈的 Namespace。Network Namespace 可以让每个容器拥有自己独立的网络设备，而且容器内的应用可以绑定到自己的端口，每个 Namespace 的端口都不会有冲突。在宿主机搭建网桥后，就能很方便地实现容器之间的通信。</p>
+<p>我们继续在代码基础上添加 <code>CLONE_NEWNET</code> 标识。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    cmd := exec.Command(<span class="string">"sh"</span>)</span><br><span class="line">    cmd.SysProcAttr = &amp;syscall.SysProcAttr&#123;</span><br><span class="line">        Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID |</span><br><span class="line">        syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    cmd.Stdin = os.Stdin</span><br><span class="line">    cmd.Stdout = os.Stdout</span><br><span class="line">    cmd.Stderr = os.Stderr</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> err := cmd.Run(); err != <span class="literal">nil</span> &#123;</span><br><span class="line">        log.Fatal(err)</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    os.Exit(<span class="number">1</span>)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>首先，在宿主机上查看自己的网络设备：</p>
+<p><img src="/images/2018-08-05/network-main.png" alt="network-main"></p>
+<p>可以看到在宿主机上有 eth0 和 lo 等网络设备。下面，运行程序，并运行 <code>ifconfig</code>：</p>
+<p><img src="/images/2018-08-05/network-chuan.png" alt="network-chuan"></p>
+<p>我们发现，在 Namespace 中什么网络设备都没有。这可以断定 Namespace 与宿主机之间的网络是处于隔离状态的。</p>
+<h2 id="Cgroups"><a href="#Cgroups" class="headerlink" title="Cgroups"></a>Cgroups</h2><p>Linux Namespace 帮助进程隔离出自己的单独空间，而 Cgroups 则可以限制每个空间的大小。Cgroups 提供了对一组进程及将来子进程的资源限制、控制和统计的能力。</p>
+<p>Cgroups 有三个组件：</p>
+<ol>
+<li>cgroup 负责对进程分组管理，一个 cgroup 包含一组进程并可以设置进程参数</li>
+<li>subsystem 是一组资源控制模块，可以关联到 cgroup 上，并对 cgroup 中的进程做出相应限制。</li>
+<li>hierarchy 可以把一组 cgroup 串成一个树状结构，这样 cgroup 可以做到继承。</li>
+</ol>
+<p>Cgroups 中的 hierarchy 是一种树状结构，Kernel 为了使得对 Cgroups 的配置更加直观，通过一个虚拟的树状文件系统配置 Cgroups 的，通过层级的目录虚拟出 cgroup 树。我们可以在系统上做实验：</p>
+<ol>
+<li><p>首先，创建并挂载一个 hierarchy<br><img src="/images/2018-08-05/cgroup-mount.png" alt="cgroup-mount"></p>
+<ul>
+<li><code>cgroup.clone_children</code>，<code>cpuset</code> 的 subsystem 会读取这个配置文件，如果这个值是 1，子 cgroup 才会继承父 cgroup 的 <code>cputset</code> 的配置</li>
+<li><code>cgroup.procs</code> 是树中当前节点 cgroup 中的进程组 ID</li>
+<li><code>notify_on_release</code> 和 <code>release_agent</code> 会一起使用。<code>notify_on_release</code> 标识当这个 cgroup 最后一个进程退出的时候是否执行了 <code>release_agent</code>；<code>release_agent</code> 使进程退出后自动清理掉不再使用的 cgroup</li>
+<li><code>tasks</code> 标识该 cgroup 下的进程 ID，将进程 ID 写入 <code>tasks</code> 文件中，便会将相应进程加入到这个 cgroup 中</li>
+</ul>
+</li>
+<li><p>在刚创建好的 hierarchy 上 cgroup 的根节点中拓展出两个子 cgroup<br><img src="/images/2018-08-05/cgroup-tree.png" alt="cgroup-tree"><br>可以看到在 cgroup 目录下创建文件夹的时候，Kernel 会把文件夹标记为子 cgroup，她们继承父 cgroup 的属性。</p>
+</li>
+<li><p>在 cgroup 中添加和移动进程只需要将进程 ID 写到或移动到 cgroup 节点的 <code>tasks</code> 文件中即可</p>
+</li>
+</ol>
+<p><img src="/images/2018-08-05/cgroup-mv.png" alt="cgroup-mv"></p>
+<p>这样，我们就把当前的 3217 进程加入到 cgroup-test:/cgroup-1 中了</p>
+<ol start="4">
+<li>通过 subsystem 限制 cgroup 中的进程的资源。我们使用系统为每个 subsystem 默认创建的 hierarchy，如 memory 的 hierarchy 来完成实验。</li>
+</ol>
+<p><img src="/images/2018-08-05/cgroup-mem.png" alt="cgroup-mem"></p>
+<p><img src="/images/2018-08-05/cgroup-stress.png" alt="cgroup-stress"></p>
+<p>可以看到系统总的内存为 2GB，其中 stess 只能占用到 5% 左右，也就是 100MB。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/docker/" rel="tag"># docker</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/04/09/%E7%BD%91%E7%BB%9C%E6%98%AF%E6%80%8E%E6%A0%B7%E8%BF%9E%E6%8E%A5%E7%9A%84/" rel="prev" title="网络是如何连接的">
+      <i class="fa fa-chevron-left"></i> 网络是如何连接的
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/10/05/JVM%E5%9E%83%E5%9C%BE%E6%94%B6%E9%9B%86%E7%AE%97%E6%B3%95/" rel="next" title="JVM 垃圾收集算法">
+      JVM 垃圾收集算法 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Namespace"><span class="nav-number">1.</span> <span class="nav-text">Namespace</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#UTS-Namespace"><span class="nav-number">1.1.</span> <span class="nav-text">UTS Namespace</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IPC-Namespace"><span class="nav-number">1.2.</span> <span class="nav-text">IPC Namespace</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#PID-Namespace"><span class="nav-number">1.3.</span> <span class="nav-text">PID Namespace</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Mount-Namespace"><span class="nav-number">1.4.</span> <span class="nav-text">Mount Namespace</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#User-Namespace"><span class="nav-number">1.5.</span> <span class="nav-text">User Namespace</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Network-Namespace"><span class="nav-number">1.6.</span> <span class="nav-text">Network Namespace</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Cgroups"><span class="nav-number">2.</span> <span class="nav-text">Cgroups</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">23</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2018/08/05/Docker-Namespace-Cgroup/";
+    this.page.identifier = "2018/08/05/Docker-Namespace-Cgroup/";
+    this.page.title = "Docker 基础知识之 Namespace, Cgroup";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>
