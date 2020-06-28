@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="概念对于在生产或测试环境使用过 Kubernetes,或者对 Kubernetes 有基本了解的用户，Deployment 一定不陌生。Deployment 为 Pod 和 ReplicaSets 提供了声明式管理的功能，每一个 Deployment 对应集群中的一次部署。用户可以利用 Yaml 或 JSON 文件描述的期望状态，Deployment Controller 将会以一定的速度将实际状">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kubernetes Deployment 的设计与实现">
+<meta property="og:url" content="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="概念对于在生产或测试环境使用过 Kubernetes,或者对 Kubernetes 有基本了解的用户，Deployment 一定不陌生。Deployment 为 Pod 和 ReplicaSets 提供了声明式管理的功能，每一个 Deployment 对应集群中的一次部署。用户可以利用 Yaml 或 JSON 文件描述的期望状态，Deployment Controller 将会以一定的速度将实际状">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/dep-rs-pod.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/dep-rs-pod-2.png">
+<meta property="article:published_time" content="2020-06-27T03:12:17.000Z">
+<meta property="article:modified_time" content="2020-06-28T09:41:58.929Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="kubernetes">
+<meta property="article:tag" content="deployment">
+<meta property="article:tag" content="controller">
+<meta property="article:tag" content="pod">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/dep-rs-pod.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Kubernetes Deployment 的设计与实现 | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Kubernetes Deployment 的设计与实现
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-06-27 11:12:17" itemprop="dateCreated datePublished" datetime="2020-06-27T11:12:17+08:00">2020-06-27</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/06/27/Kubernetes-Deployment-的设计与实现/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="概念"><a href="#概念" class="headerlink" title="概念"></a>概念</h2><p>对于在生产或测试环境使用过 Kubernetes,或者对 Kubernetes 有基本了解的用户，Deployment 一定不陌生。Deployment 为 <a href="https://kubernetes.io/docs/concepts/workloads/pods/pod/" target="_blank" rel="noopener">Pod</a> 和 <a href="https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/" target="_blank" rel="noopener">ReplicaSets</a> 提供了声明式管理的功能，每一个 Deployment 对应集群中的一次部署。用户可以利用 Yaml 或 JSON 文件描述的期望状态，Deployment Controller 将会以一定的速度将实际状态调整为与期望状态相同。</p>
+<p>本文主要介绍 Deployment 的工作原理，并从源码角度分析它如何实现水平扩缩容、回滚、滚动更新等功能。</p>
+<h2 id="工作原理"><a href="#工作原理" class="headerlink" title="工作原理"></a>工作原理</h2><p>Deployment 是 Kubernetes 中最常见，也是最常用的 API 对象。上一篇文章中，介绍了 Kubernetes 的重要编程模型：控制器模型。Deployment Controller 即通过控制器模型为 Deployment 对象实现了声明式 API。</p>
+<p>Deployment 看似简单，但是它实现了 Kubernetes 中非常重要的功能呢：Pod 的“水平扩展/收缩”（Horizontal scaling out/in）。而这个功能是从 PaaS 时代开始，任何一个平台级项目都必须具备的编排能力。而这个能力的实现，又依赖 Kubernetes 中的另一个重要的 API 对象：ReplicaSet。ReplicaSet 的 Yaml 非常简单，包含一个对象元数据、副本数定义和一个 Pod 模板:</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">ReplicaSet</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-rs</span></span><br><span class="line">  <span class="attr">labels:</span></span><br><span class="line">    <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">3</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span></span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">nginx:stable</span></span><br></pre></td></tr></table></figure>
+
+<p>不难发现 ReplicaSet 实际上是 Deployment 的一个子集。实际上，Deployment 直接管理的并不是 Pod，而是 ReplicaSet 对象。所以，对于一个 Deployment 所管理的 Pod，它的 <code>ownerReference</code> 其实是 ReplicaSet。</p>
+<p>以一个副本数为 4 的 Deployment 为例：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Deployment</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-deploy</span></span><br><span class="line">  <span class="attr">labels:</span></span><br><span class="line">    <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">4</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span></span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">nginx:stable</span></span><br><span class="line">        <span class="attr">ports:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">containerPort:</span> <span class="number">80</span></span><br></pre></td></tr></table></figure>
+
+<p>在实际上，Deployment、ReplicaSet、Pod 之间的关系是：</p>
+<img src="/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/dep-rs-pod.png" class="">
+
+<p>由上图可以看出，副本数是 4 的 Deployment，与 ReplicaSet，以及 Pod 是一种层层控制关系。其中 ReplicaSet 通过控制器，保证集群中 Pod 的个数永远等于指定的个数。在此基础上，Deployment 同样通过控制器模式，来操作 ReplicaSet 的个数和属性，进而实现“水平拓展/收缩”及“滚动更新”两个编排动作。其中“水平拓展/收缩”较为简单，Deployment Controller 只要修改它控制的 ReplicaSet 的副本数，ReplicaSet Controller 则根据期望的副本数新建或删除 Pod。</p>
+<p>下面通过一个例子来解释“滚动更新”。首先，我们创建一个 <code>nginx-deployment</code>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">kubectl</span> <span class="string">create</span> <span class="string">-f</span> <span class="string">nginx-deploy.yaml</span> <span class="string">--record</span></span><br></pre></td></tr></table></figure>
+
+<p>然后，检查创建后的状态：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="string">$</span> <span class="string">kubectl</span> <span class="string">get</span> <span class="string">deployments</span></span><br><span class="line"><span class="string">NAME</span>               <span class="string">DESIRED</span>   <span class="string">CURRENT</span>   <span class="string">UP-TO-DATE</span>   <span class="string">AVAILABLE</span>   <span class="string">AGE</span></span><br><span class="line"><span class="string">nginx-deployment</span>   <span class="number">4</span>         <span class="number">0</span>         <span class="number">0</span>            <span class="number">0</span>           <span class="string">1s</span></span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>DESIRED：表示期望的 Pod 个数；</li>
+<li>CURRENT：当前 Running 状态 Pod 个数；</li>
+<li>UP-TO-DATE：处于最新版本 Pod 个数；</li>
+<li>AVAILABLE：当前已经可用的 Pod 个数，即既是 Running，又是最新版本，并且健康检查已为 Ready 的 Pod 个数；</li>
+</ol>
+<p>待全部 Pod 均处于 AVAILABLE 状态后，可以再查询 Deployment 所控制的 ReplicaSet：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="string">$</span> <span class="string">kubectl</span> <span class="string">get</span> <span class="string">rs</span></span><br><span class="line"><span class="string">NAME</span>                          <span class="string">DESIRED</span>   <span class="string">CURRENT</span>   <span class="string">READY</span>   <span class="string">AGE</span></span><br><span class="line"><span class="string">nginx-deployment-3167673210</span>   <span class="number">4</span>         <span class="number">4</span>         <span class="number">4</span>       <span class="string">20s</span></span><br></pre></td></tr></table></figure>
+
+<p>可以看到，创建 Deployment 后，Deployment Controller 就会立即创建一个 Pod 副本数为 4 的 ReplicaSet。而 ReplicaSet 的名字，则是由 Deployment 的名字和一个随机字符串组成。Deployment 的状态是在 ReplicaSet 的基础上，添加了和版本相关的 <code>UP-TO-DATE</code> 字段。</p>
+<p>这时候，如果修改 Deployment 的 Pod 模板，就会触发“滚动更新”。当使用 <code>kubectl edit deployment</code> 或 <code>kubectl apply</code> 提交新的 yaml 后，可以通过查看 Deployment 的 Events，看到这个“滚动更新”的流程：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">$ kubectl describe deployment nginx-deployment</span><br><span class="line">...</span><br><span class="line">Events:</span><br><span class="line">  Type    Reason             Age   From                   Message</span><br><span class="line">  ----    ------             ----  ----                   -------</span><br><span class="line">...</span><br><span class="line">  Normal  ScalingReplicaSet  24s   deployment-controller  Scaled up replica <span class="built_in">set</span> nginx-deployment-1764197365 to 1</span><br><span class="line">  Normal  ScalingReplicaSet  22s   deployment-controller  Scaled down replica <span class="built_in">set</span> nginx-deployment-3167673210 to 2</span><br><span class="line">  Normal  ScalingReplicaSet  22s   deployment-controller  Scaled up replica <span class="built_in">set</span> nginx-deployment-1764197365 to 2</span><br><span class="line">  Normal  ScalingReplicaSet  19s   deployment-controller  Scaled down replica <span class="built_in">set</span> nginx-deployment-3167673210 to 1</span><br><span class="line">  Normal  ScalingReplicaSet  19s   deployment-controller  Scaled up replica <span class="built_in">set</span> nginx-deployment-1764197365 to 3</span><br><span class="line">  Normal  ScalingReplicaSet  14s   deployment-controller  Scaled down replica <span class="built_in">set</span> nginx-deployment-3167673210 to 0</span><br></pre></td></tr></table></figure>
+
+<p>可以看到当修改 PodTemplate 后，Deployment Controller 会使用这个新的 PodTemplate 创建一个新的 ReplicaSet，它初始的副本数是 0。然后 Deployment Controller 开始将新的 ReplicaSet 所控制的 Pod 副本数由 0 个变成 1 个，即：“水平拓展”出一个副本；接着又将旧的 ReplicaSet 所控制的 Pod 副本数减少一个，即：“水平收缩”。如此交替进行，最后新的 ReplicaSet 所管理的 Pod 个数上升为 4，而旧的 ReplicaSet 所管理的 Pod 个数收缩为 0 个。</p>
+<p>这样，将集群中正在运行的多个 Pod 版本，交替逐一升级更换的过程就是“滚动更新”。更新结束后，可以查看新、旧两个 ReplicaSet 的状态：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">$ kubectl get rs</span><br><span class="line">NAME                          DESIRED   CURRENT   READY   AGE</span><br><span class="line">nginx-deployment-1764197365   4         4         4       6s</span><br><span class="line">nginx-deployment-3167673210   0         0         0       30s</span><br></pre></td></tr></table></figure>
+
+<p>滚动更新有很明显的好处。比如当新的 Pod 因为故障无法启动时，“滚动更新”就会停止，允许开发者介入。而此时应用本身还是有两个旧版本的 Pod 在线，所以服务不会受到太大的影响。当然这也要求开发者一定要使用 Health Check 检查应用的运行状态，而不是依赖于容器的 Running 状态。此外，Deployment Controller 还会保证在任何时间窗口内，只有指定比例的新 Pod 被创建，及指定比例的旧 Pod 处于离线状态。这两个比例的默认值均为 25%，且可以在 <code>spec.rollingUpdateStrategy</code> 中配置：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Deployment</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-deployment</span></span><br><span class="line">  <span class="attr">labels:</span></span><br><span class="line">    <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line"><span class="string">...</span></span><br><span class="line">  <span class="attr">strategy:</span></span><br><span class="line">    <span class="attr">type:</span> <span class="string">RollingUpdate</span></span><br><span class="line">    <span class="attr">rollingUpdate:</span></span><br><span class="line">      <span class="attr">maxSurge:</span> <span class="number">25</span><span class="string">%</span></span><br><span class="line">      <span class="attr">maxUnavailable:</span> <span class="number">25</span><span class="string">%</span></span><br></pre></td></tr></table></figure>
+
+<p>结合“滚动更新”，Deployment、ReplicaSet、Pod 的关系图为：</p>
+<img src="/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/dep-rs-pod-2.png" class="">
+
+<p>如图中所示，Deployment Controller 实际上控制 ReplicaSet 的数量，以及每个 ReplicaSet 的属性。而应用的一个版本对应的正是一个 ReplicaSet，这个版本的 Pod 数量则由 ReplicaSet Controller 保证。通过多个 ReplicaSet，Kubernetes 就实现了对多个“应用版本”的描述。</p>
+<p>当在滚动更新，发现新版本不符合预期，需要回滚到旧版本的时候，可以执行:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">$ kubectl rollout undo deployment/nginx-deployment</span><br><span class="line">deployment.extensions/nginx-deployment</span><br></pre></td></tr></table></figure>
+
+<p>在具体操作上，Deployment Controller 就是让旧的 ReplicaSet 再次扩展成 4 个 Pod，而让新的 Pod 重新收缩为 0 个。那么更进一步，如果需要回滚到更早的版本，要怎么办呢？</p>
+<p>首先，需要使用 <code>kubectl roll history</code> 命令，查看每次 Deployment 变更对应的版本：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="string">$</span> <span class="string">kubectl</span> <span class="string">rollout</span> <span class="string">history</span> <span class="string">deployment/nginx-deployment</span></span><br><span class="line"><span class="string">deployments</span> <span class="string">"nginx-deployment"</span></span><br><span class="line"><span class="string">REVISION</span>    <span class="string">CHANGE-CAUSE</span></span><br><span class="line"><span class="number">1</span>           <span class="string">kubectl</span> <span class="string">create</span> <span class="string">-f</span> <span class="string">nginx-deployment.yaml</span> <span class="string">--record</span></span><br><span class="line"><span class="number">2</span>           <span class="string">kubectl</span> <span class="string">edit</span> <span class="string">deployment/nginx-deployment</span></span><br><span class="line"><span class="number">3</span>           <span class="string">kubectl</span> <span class="string">set</span> <span class="string">image</span> <span class="string">deployment/nginx-deployment</span> <span class="string">nginx=nginx:alpine</span></span><br></pre></td></tr></table></figure>
+
+<p>然后可以在回滚的时候通过指定版本的版本号，回滚到指定版本：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="string">$</span> <span class="string">kubectl</span> <span class="string">rollout</span> <span class="string">undo</span> <span class="string">deployment/nginx-deployment</span> <span class="string">--to-revision=2</span></span><br><span class="line"><span class="string">deployment.extensions/nginx-deployment</span></span><br></pre></td></tr></table></figure>
+
+<p>这里我们可能已经想到一个问题：对 Deployment 的每次更新操作，都会产生一个新的 ReplicaSet，这会不会浪费资源呢？</p>
+<p>其中一个方法是可以使用 <code>kubectl rollout pause</code> 指令暂停滚动更新，当完成对 Deployment 的全部修改后，在使用 <code>kubectl rollout resume</code> 指令恢复继续进行滚动更新。这时，只会生成一个 ReplicaSet。不过，其实这样控制 ReplicaSet 的数量，随着应用的不断更新，ReplicaSet 的数量还是会不断增加。Deployment 利用一个 <code>spec.revisionHistoryLimit</code> 字段，限制了保存的历史版本个数。所以如果将它设置为 0，那么就无法进行回滚操作了。</p>
+<h2 id="源码分析"><a href="#源码分析" class="headerlink" title="源码分析"></a>源码分析</h2><p>前文我们从实践角度分析了 Deployment 的工作原理。下面通过分析源码，研究 Deployment 的具体实现。</p>
+<p>在 Kubernetes 的结构中存在一个叫做 <code>kube-controller-manager</code> 的组件。其实这个组件就是一系列控制器的组合。在项目源代码 <code>pkg/controller</code> 目录下可以看到一系列 controller：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="string">$</span> <span class="string">cd</span> <span class="string">kubernetes/pkg/controller/</span></span><br><span class="line"><span class="string">$</span> <span class="string">ls</span> <span class="string">-d</span> <span class="string">*/</span>              </span><br><span class="line"><span class="string">deployment/</span>             <span class="string">job/</span>                    <span class="string">podautoscaler/</span>          </span><br><span class="line"><span class="string">cloud/</span>                  <span class="string">disruption/</span>             <span class="string">namespace/</span>              </span><br><span class="line"><span class="string">replicaset/</span>             <span class="string">serviceaccount/</span>         <span class="string">volume/</span></span><br><span class="line"><span class="string">cronjob/</span>                <span class="string">garbagecollector/</span>       <span class="string">nodelifecycle/</span>          <span class="string">replication/</span>            <span class="string">statefulset/</span>            <span class="string">daemon/</span></span><br><span class="line"><span class="string">...</span></span><br></pre></td></tr></table></figure>
+
+<p>这个目录下的每一个控制器，都以独特的方式负责某种编排功能，都遵循通用的编排功能：控制循环。而 Deployment 正式控制器中的一种。</p>
+<p><code>DeploymentController</code> 作为管理 Deployment 资源的控制器，会在启动时利用 <code>Informer</code> 监听 Pod、ReplicaSet、Deployment 三种资源对象的通知，这三种资源的变动都会触发控制器中的回调函数。</p>
+<p>不同对象的事件在被过滤后进行工作队列，等待工作进程的消费，以下事件会触发 Deployment 的同步：</p>
+<ol>
+<li>Deployment 变化；</li>
+<li>Deployment 控制的 ReplicaSet 的变化；</li>
+<li>Deployment 下的 Pod 数量为 0 时，Pod 的删除事件；</li>
+</ol>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// NewDeploymentController creates a new DeploymentController.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">NewDeploymentController</span><span class="params">(dInformer appsinformers.DeploymentInformer, </span></span></span><br><span class="line"><span class="function"><span class="params">                             rsInformer appsinformers.ReplicaSetInformer,         </span></span></span><br><span class="line"><span class="function"><span class="params">                             podInformer coreinformers.PodInformer, </span></span></span><br><span class="line"><span class="function"><span class="params">                             client clientset.Interface)</span></span> </span><br><span class="line">                             (*DeploymentController, error) {</span><br><span class="line">    </span><br><span class="line">    dc := &amp;DeploymentController{</span><br><span class="line">		client:        client,</span><br><span class="line">		eventRecorder: eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: <span class="string">"deployment-controller"</span>}),</span><br><span class="line">		queue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), <span class="string">"deployment"</span>),</span><br><span class="line">    }</span><br><span class="line">    </span><br><span class="line">    dInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{</span><br><span class="line">		AddFunc:    dc.addDeployment,</span><br><span class="line">		UpdateFunc: dc.updateDeployment,</span><br><span class="line">		<span class="comment">// This will enter the sync loop and no-op, because the deployment has been deleted from the store.</span></span><br><span class="line">		DeleteFunc: dc.deleteDeployment,</span><br><span class="line">	})</span><br><span class="line">	rsInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{</span><br><span class="line">		AddFunc:    dc.addReplicaSet,</span><br><span class="line">		UpdateFunc: dc.updateReplicaSet,</span><br><span class="line">		DeleteFunc: dc.deleteReplicaSet,</span><br><span class="line">	})</span><br><span class="line">	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{</span><br><span class="line">		DeleteFunc: dc.deletePod,</span><br><span class="line">    })</span><br><span class="line">    ...</span><br><span class="line">	<span class="keyword">return</span> dc, <span class="literal">nil</span></span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p>DeploymentController 在调用 Run 的时候启动多个工作进程，这些工作进程运行 worker 方法从队列中读取最新 Deployment 对象进行同步。</p>
+<h3 id="同步"><a href="#同步" class="headerlink" title="同步"></a>同步</h3><p>DeploymentController 对 Deployment 的通过通过以 <code>syncDeployment</code> 方法进行，该方法包含同步、回滚及更新逻辑，也是同步 Deployment 资源的唯一入口：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// syncDeployment will sync the deployment with the given key.</span></span><br><span class="line"><span class="comment">// This function is not meant to be invoked concurrently with the same key.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">syncDeployment</span><span class="params">(key <span class="keyword">string</span>)</span> <span class="title">error</span></span> {</span><br><span class="line">    namespace, name, err := cache.SplitMetaNamespaceKey(key)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">	deployment, err := dc.dLister.Deployments(namespace).Get(name)</span><br><span class="line">	<span class="keyword">if</span> errors.IsNotFound(err) {</span><br><span class="line">		klog.V(<span class="number">2</span>).Infof(<span class="string">"Deployment %v has been deleted"</span>, key)</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">    }</span><br><span class="line">    </span><br><span class="line">    d := deployment.DeepCopy()</span><br><span class="line">    <span class="comment">// List ReplicaSets owned by this Deployment, while reconciling ControllerRef</span></span><br><span class="line">	<span class="comment">// through adoption/orphaning.</span></span><br><span class="line">    rsList, _ := dc.getReplicaSetsForDeployment(d)</span><br><span class="line">    <span class="comment">// List all Pods owned by this Deployment, grouped by their ReplicaSet.</span></span><br><span class="line">	<span class="comment">// Current uses of the podMap are:</span></span><br><span class="line">	<span class="comment">//</span></span><br><span class="line">	<span class="comment">// * check if a Pod is labeled correctly with the pod-template-hash label.</span></span><br><span class="line">	<span class="comment">// * check that no old Pods are running in the middle of Recreate Deployments.</span></span><br><span class="line">    podMap, _ := dc.getPodMapForDeployment(d, rsList)</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">if</span> d.Spec.Paused {</span><br><span class="line">		<span class="keyword">return</span> dc.sync(d, rsList)</span><br><span class="line">    }</span><br><span class="line">    </span><br><span class="line">    scalingEvent, err := dc.isScalingEvent(d, rsList)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">if</span> scalingEvent {</span><br><span class="line">		<span class="keyword">return</span> dc.sync(d, rsList)</span><br><span class="line">    }</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">switch</span> d.Spec.Strategy.Type {</span><br><span class="line">	<span class="keyword">case</span> apps.RecreateDeploymentStrategyType:</span><br><span class="line">		<span class="keyword">return</span> dc.rolloutRecreate(d, rsList, podMap)</span><br><span class="line">	<span class="keyword">case</span> apps.RollingUpdateDeploymentStrategyType:</span><br><span class="line">		<span class="keyword">return</span> dc.rolloutRolling(d, rsList)</span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">return</span> fmt.Errorf(<span class="string">"unexpected deployment strategy type: %s"</span>, d.Spec.Strategy.Type)</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p>在删除简化后的流程中：</p>
+<ol>
+<li><p>由传入的 key 获取 Deployment；</p>
+</li>
+<li><p>调用 <code>getReplicaSetsForDeployment</code> 获取集群中与 Deployment 相关的所有 ReplicaSet；</p>
+<ol>
+<li>查找所有 ReplicaSet；</li>
+<li>根据 Deployment 中的选择器对 ReplicaSet 建立或释放从属关系；</li>
+</ol>
+</li>
+<li><p>调用 <code>getPodMapForDeployment</code> 查询 Deployment 控制的 ReplicaSet 到 Pod 的映射；</p>
+<ol>
+<li>根据选择器查询全部 Pod；</li>
+<li>根据 Pod 的控制器 ReplicaSet 对上述 Pod 进行分类；</li>
+</ol>
+</li>
+<li><p>如果 Deployment 处于暂停状态或者需要扩容，就会调用 <code>sync</code> 方法同步 Deployment；</p>
+</li>
+<li><p>在正常情况下会根据规格中的策略对 Deployment 进行更新：</p>
+<ol>
+<li><code>Recreate</code> 策略调用 <code>rolloutRecreate</code> 方法，先杀掉所有存在的 Pod 后启动新的 Pod 副本；</li>
+<li><code>RollingUpdate</code> 策略调用 <code>rolloutRolling</code> 方法，根据 <code>maxSurge</code> 和 <code>maxUnavailable</code> 配置对 Pod 进行滚动更新。</li>
+</ol>
+</li>
+</ol>
+<h3 id="扩容"><a href="#扩容" class="headerlink" title="扩容"></a>扩容</h3><p>如果当前需要更新的 Deployment 由 <code>isScalingEvent</code> 检查发现更新事件是一次扩缩容事件，那么 ReplicaSet 持有的 Pod 数量和规格中的 ReplicaSet 不一致，那么就调用 <code>sync</code> 方法对 Deployment 进行同步：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// sync is responsible for reconciling deployments on scaling events or when they</span></span><br><span class="line"><span class="comment">// are paused.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">sync</span><span class="params">(d *apps.Deployment, rsList []*apps.ReplicaSet)</span> <span class="title">error</span></span> {</span><br><span class="line">    newRS, oldRSs, err := dc.getAllReplicaSetsAndSyncRevision(d, rsList, <span class="literal">false</span>)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">if</span> err := dc.scale(d, newRS, oldRSs); err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="comment">// If we get an error while trying to scale, the deployment will be requeued</span></span><br><span class="line">		<span class="comment">// so we can abort this resync</span></span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">    }</span><br><span class="line">    </span><br><span class="line">    allRSs := <span class="built_in">append</span>(oldRSs, newRS)</span><br><span class="line">	<span class="keyword">return</span> dc.syncDeploymentStatus(allRSs, newRS, d)</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p><code>sync</code> 从 apiserver 获取当前 Deployment 对应的最新 ReplicaSet 和历史 ReplicaSet 并调用 <code>scale</code> 方法开始扩容。<code>scale</code> 即为扩容主要执行的方法。该方法较长，本文分为几部分来分析具体实现：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">scale</span><span class="params">(deployment *apps.Deployment, newRS *apps.ReplicaSet, oldRSs []*apps.ReplicaSet)</span> <span class="title">error</span></span> {</span><br><span class="line">    <span class="comment">// If there is only one active replica set then we should scale that up to the full count of the</span></span><br><span class="line">	<span class="comment">// deployment. If there is no active replica set, then we should scale up the newest replica set.</span></span><br><span class="line">	<span class="keyword">if</span> activeOrLatest := deploymentutil.FindActiveOrLatest(newRS, oldRSs); activeOrLatest != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">if</span> *(activeOrLatest.Spec.Replicas) == *(deployment.Spec.Replicas) {</span><br><span class="line">			<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">		}</span><br><span class="line">		_, _, err := dc.scaleReplicaSetAndRecordEvent(activeOrLatest, *(deployment.Spec.Replicas), deployment)</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// If the new replica set is saturated, old replica sets should be fully scaled down.</span></span><br><span class="line">	<span class="comment">// This case handles replica set adoption during a saturated new replica set.</span></span><br><span class="line">	<span class="keyword">if</span> deploymentutil.IsSaturated(deployment, newRS) {</span><br><span class="line">		<span class="keyword">for</span> _, old := <span class="keyword">range</span> controller.FilterActiveReplicaSets(oldRSs) {</span><br><span class="line">			<span class="keyword">if</span> _, _, err := dc.scaleReplicaSetAndRecordEvent(old, <span class="number">0</span>, deployment); err != <span class="literal">nil</span> {</span><br><span class="line">				<span class="keyword">return</span> err</span><br><span class="line">			}</span><br><span class="line">		}</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p>假如集群中只有一个活跃的 ReplicaSet，那么就对该 ReplicaSet 进行直接扩缩容，但是如果不存在活跃 ReplicaSet 则选择最新 ReplicaSet。这部分工作由 <code>FindActiveOrLatest</code> 及 <code>scaleReplicaSetAndRecordEvent</code> 共同完成。</p>
+<p>当调用 <code>IsSaturated</code> 发现当前 Deployment 对应的副本数已饱和时，则删除所有历史版本 ReplicaSet 持有的 Pod 副本。</p>
+<p>当 Deployment 使用滚动更新策略时，如果发现当前 ReplicaSet 没有饱和并且存在多个活跃的 ReplicaSet 对象，则按照比例分别对各个活跃的 ReplicaSet 进行扩容或缩容：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line">   <span class="comment">// There are old replica sets with pods and the new replica set is not saturated.</span></span><br><span class="line"><span class="comment">// We need to proportionally scale all replica sets (new and old) in case of a</span></span><br><span class="line"><span class="comment">// rolling deployment.</span></span><br><span class="line"><span class="keyword">if</span> deploymentutil.IsRollingUpdate(deployment) {</span><br><span class="line">	allRSs := controller.FilterActiveReplicaSets(<span class="built_in">append</span>(oldRSs, newRS))</span><br><span class="line">	allRSsReplicas := deploymentutil.GetReplicaCountForReplicaSets(allRSs)</span><br><span class="line"></span><br><span class="line">	allowedSize := <span class="keyword">int32</span>(<span class="number">0</span>)</span><br><span class="line">	<span class="keyword">if</span> *(deployment.Spec.Replicas) &gt; <span class="number">0</span> {</span><br><span class="line">		allowedSize = *(deployment.Spec.Replicas) + deploymentutil.MaxSurge(*deployment)</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Number of additional replicas that can be either added or removed from the total</span></span><br><span class="line">	<span class="comment">// replicas count. These replicas should be distributed proportionally to the active</span></span><br><span class="line">	<span class="comment">// replica sets.</span></span><br><span class="line">	deploymentReplicasToAdd := allowedSize - allRSsReplicas</span><br><span class="line"></span><br><span class="line">	<span class="comment">// The additional replicas should be distributed proportionally amongst the active</span></span><br><span class="line">	<span class="comment">// replica sets from the larger to the smaller in size replica set. Scaling direction</span></span><br><span class="line">	<span class="comment">// drives what happens in case we are trying to scale replica sets of the same size.</span></span><br><span class="line">	<span class="comment">// In such a case when scaling up, we should scale up newer replica sets first, and</span></span><br><span class="line">	<span class="comment">// when scaling down, we should scale down older replica sets first.</span></span><br><span class="line">	<span class="keyword">var</span> scalingOperation <span class="keyword">string</span></span><br><span class="line">	<span class="keyword">switch</span> {</span><br><span class="line">	<span class="keyword">case</span> deploymentReplicasToAdd &gt; <span class="number">0</span>:</span><br><span class="line">		sort.Sort(controller.ReplicaSetsBySizeNewer(allRSs))</span><br><span class="line">		scalingOperation = <span class="string">"up"</span></span><br><span class="line"></span><br><span class="line">	<span class="keyword">case</span> deploymentReplicasToAdd &lt; <span class="number">0</span>:</span><br><span class="line">		sort.Sort(controller.ReplicaSetsBySizeOlder(allRSs))</span><br><span class="line">		scalingOperation = <span class="string">"down"</span></span><br><span class="line">	}</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li><p>调用 <code>FilterActiveReplicaSets</code> 查询所有活跃的 ReplicaSet；</p>
+</li>
+<li><p>调用 <code>GetReplicaCountForReplicaSets</code> 计算当前 Deployment 对应 ReplicaSet 持有的全部 Pod 副本个数；</p>
+</li>
+<li><p>根据 Deployment 配置的 <code>maxSurge</code> 和 <code>replicas</code> 计算允许创建的 Pod 数量；</p>
+</li>
+<li><p>利用 <code>allowedSize</code> 和 <code>allRSsReplicas</code> 计算出需要增加或者删除的副本数；</p>
+</li>
+<li><p>根据 <code>deploymentReplicasToAdd</code> 变量的符号对 ReplicaSet 数组进行排序并确定当前的操作是扩容还是缩容：</p>
+<ol>
+<li>若 <code>deploymentReplicasToAdd</code> &gt; 0，ReplicaSet 按照从新到旧的顺序进行扩容；</li>
+<li>若 <code>deploymentReplicasToAdd</code> &lt; 0，ReplicaSet 按照从旧到新的顺序进行缩容；</li>
+</ol>
+</li>
+</ol>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">      <span class="comment">// Iterate over all active replica sets and estimate proportions for each of them.</span></span><br><span class="line"><span class="comment">// The absolute value of deploymentReplicasAdded should never exceed the absolute</span></span><br><span class="line"><span class="comment">// value of deploymentReplicasToAdd.</span></span><br><span class="line">deploymentReplicasAdded := <span class="keyword">int32</span>(<span class="number">0</span>)</span><br><span class="line">nameToSize := <span class="built_in">make</span>(<span class="keyword">map</span>[<span class="keyword">string</span>]<span class="keyword">int32</span>)</span><br><span class="line"><span class="keyword">for</span> i := <span class="keyword">range</span> allRSs {</span><br><span class="line">	rs := allRSs[i]</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Estimate proportions if we have replicas to add, otherwise simply populate</span></span><br><span class="line">	<span class="comment">// nameToSize with the current sizes for each replica set.</span></span><br><span class="line">	<span class="keyword">if</span> deploymentReplicasToAdd != <span class="number">0</span> {</span><br><span class="line">		proportion := deploymentutil.GetProportion(rs, *deployment, deploymentReplicasToAdd, deploymentReplicasAdded)</span><br><span class="line"></span><br><span class="line">		nameToSize[rs.Name] = *(rs.Spec.Replicas) + proportion</span><br><span class="line">		deploymentReplicasAdded += proportion</span><br><span class="line">	} <span class="keyword">else</span> {</span><br><span class="line">		nameToSize[rs.Name] = *(rs.Spec.Replicas)</span><br><span class="line">	}</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p>由于当前的 Deployment 持有了多个活跃的 ReplicaSet，所以在计算了需要增加或者删除的副本数 <code>deploymentReplicasToAdd</code>后，就会为多个活跃的 ReplicaSet 分配需要改变的副本数，<code>GetProportion</code> 会根据以下几个参数确定结果:</p>
+<ol>
+<li>Deployment 期望的 Pod 副本数量；</li>
+<li>需要新增或减少的副本数量；</li>
+<li>Deployment 目前通过 ReplicaSet 持有的 Pod 总数；</li>
+</ol>
+<p>Kubernetes 在 <code>getReplicaSetFraction</code> 中使用下面的公式计算每个 ReplicaSet 在 Deployment 资源中的占比，最后返回该 ReplicaSet 需要改变的副本数：</p>
+<p><mjx-container class="MathJax" jax="SVG" display="true"><svg style="vertical-align: -2.148ex" xmlns="http://www.w3.org/2000/svg" width="89.491ex" height="5.451ex" role="img" focusable="false" viewBox="0 -1460 39555 2409.5" xmlns:xlink="http://www.w3.org/1999/xlink"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="matrix(1 0 0 -1 0 0)"><g data-mml-node="math"><g data-mml-node="mi"><use xlink:href="#MJX-TEX-I-1D45F"></use></g><g data-mml-node="mi" transform="translate(451, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(917, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(1420, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(1718, 0)"><use xlink:href="#MJX-TEX-I-1D456"></use></g><g data-mml-node="mi" transform="translate(2063, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mi" transform="translate(2496, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(3025, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(3670, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(4136, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mo" transform="translate(4497, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(4941.7, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(5586.7, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(6089.7, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(6555.7, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mo" transform="translate(6988.7, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(7433.3, 0)"><use xlink:href="#MJX-TEX-I-1D445"></use></g><g data-mml-node="mi" transform="translate(8192.3, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(8658.3, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(9161.3, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(9459.3, 0)"><use xlink:href="#MJX-TEX-I-1D456"></use></g><g data-mml-node="mi" transform="translate(9804.3, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mi" transform="translate(10237.3, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(10766.3, 0)"><use xlink:href="#MJX-TEX-I-1D460"></use></g><g data-mml-node="mo" transform="translate(11457.6, 0)"><use xlink:href="#MJX-TEX-N-D7"></use></g><g data-mml-node="mrow" transform="translate(12457.8, 0)"><g data-mml-node="mo"><use xlink:href="#MJX-TEX-S3-28"></use></g><g data-mml-node="mfrac" transform="translate(736, 0)"><g data-mml-node="mrow" transform="translate(220, 710)"><g data-mml-node="mi"><use xlink:href="#MJX-TEX-I-1D451"></use></g><g data-mml-node="mi" transform="translate(520, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(986, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(1489, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(1787, 0)"><use xlink:href="#MJX-TEX-I-1D45C"></use></g><g data-mml-node="mi" transform="translate(2272, 0)"><use xlink:href="#MJX-TEX-I-1D466"></use></g><g data-mml-node="mi" transform="translate(2762, 0)"><use xlink:href="#MJX-TEX-I-1D45A"></use></g><g data-mml-node="mi" transform="translate(3640, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(4106, 0)"><use xlink:href="#MJX-TEX-I-1D45B"></use></g><g data-mml-node="mi" transform="translate(4706, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mo" transform="translate(5067, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(5511.7, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(6156.7, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(6659.7, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(7125.7, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mo" transform="translate(7558.7, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(8003.3, 0)"><use xlink:href="#MJX-TEX-I-1D445"></use></g><g data-mml-node="mi" transform="translate(8762.3, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(9228.3, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(9731.3, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(10029.3, 0)"><use xlink:href="#MJX-TEX-I-1D456"></use></g><g data-mml-node="mi" transform="translate(10374.3, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mi" transform="translate(10807.3, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(11336.3, 0)"><use xlink:href="#MJX-TEX-I-1D460"></use></g><g data-mml-node="mo" transform="translate(12027.6, 0)"><use xlink:href="#MJX-TEX-N-2B"></use></g><g data-mml-node="mi" transform="translate(13027.8, 0)"><use xlink:href="#MJX-TEX-I-1D45A"></use></g><g data-mml-node="mi" transform="translate(13905.8, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(14434.8, 0)"><use xlink:href="#MJX-TEX-I-1D465"></use></g><g data-mml-node="mi" transform="translate(15006.8, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(15651.8, 0)"><use xlink:href="#MJX-TEX-I-1D462"></use></g><g data-mml-node="mi" transform="translate(16223.8, 0)"><use xlink:href="#MJX-TEX-I-1D45F"></use></g><g data-mml-node="mi" transform="translate(16674.8, 0)"><use xlink:href="#MJX-TEX-I-1D454"></use></g><g data-mml-node="mi" transform="translate(17151.8, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mo" transform="translate(17617.8, 0)"><use xlink:href="#MJX-TEX-N-28"></use></g><g data-mml-node="mi" transform="translate(18006.8, 0)"><use xlink:href="#MJX-TEX-I-1D451"></use></g><g data-mml-node="mi" transform="translate(18526.8, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(18992.8, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(19495.8, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(19793.8, 0)"><use xlink:href="#MJX-TEX-I-1D45C"></use></g><g data-mml-node="mi" transform="translate(20278.8, 0)"><use xlink:href="#MJX-TEX-I-1D466"></use></g><g data-mml-node="mi" transform="translate(20768.8, 0)"><use xlink:href="#MJX-TEX-I-1D45A"></use></g><g data-mml-node="mi" transform="translate(21646.8, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(22112.8, 0)"><use xlink:href="#MJX-TEX-I-1D45B"></use></g><g data-mml-node="mi" transform="translate(22712.8, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mo" transform="translate(23073.8, 0)"><use xlink:href="#MJX-TEX-N-29"></use></g></g><g data-mml-node="mrow" transform="translate(5603.7, -686)"><g data-mml-node="mi"><use xlink:href="#MJX-TEX-I-1D451"></use></g><g data-mml-node="mi" transform="translate(520, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(986, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(1489, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(1787, 0)"><use xlink:href="#MJX-TEX-I-1D45C"></use></g><g data-mml-node="mi" transform="translate(2272, 0)"><use xlink:href="#MJX-TEX-I-1D466"></use></g><g data-mml-node="mi" transform="translate(2762, 0)"><use xlink:href="#MJX-TEX-I-1D45A"></use></g><g data-mml-node="mi" transform="translate(3640, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(4106, 0)"><use xlink:href="#MJX-TEX-I-1D45B"></use></g><g data-mml-node="mi" transform="translate(4706, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mo" transform="translate(5067, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(5511.7, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(6156.7, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mi" transform="translate(6517.7, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(7046.7, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mi" transform="translate(7407.7, 0)"><use xlink:href="#MJX-TEX-I-1D462"></use></g><g data-mml-node="mi" transform="translate(7979.7, 0)"><use xlink:href="#MJX-TEX-I-1D460"></use></g><g data-mml-node="mo" transform="translate(8448.7, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(8893.3, 0)"><use xlink:href="#MJX-TEX-I-1D445"></use></g><g data-mml-node="mi" transform="translate(9652.3, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(10118.3, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(10621.3, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(10919.3, 0)"><use xlink:href="#MJX-TEX-I-1D456"></use></g><g data-mml-node="mi" transform="translate(11264.3, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mi" transform="translate(11697.3, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(12226.3, 0)"><use xlink:href="#MJX-TEX-I-1D460"></use></g></g><rect width="23662.8" height="60" x="120" y="220"></rect></g><g data-mml-node="mo" transform="translate(24861, 0)"><use xlink:href="#MJX-TEX-N-2212"></use></g><g data-mml-node="mn" transform="translate(25861.2, 0)"><use xlink:href="#MJX-TEX-N-31"></use></g><g data-mml-node="mo" transform="translate(26361.2, 0)"><use xlink:href="#MJX-TEX-S3-29"></use></g></g></g></g></svg></mjx-container></p>
+<p>该结果又会与目前期望的剩余变化量对比，保证变化的副本数量不会超过期望值。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Update all replica sets</span></span><br><span class="line"><span class="keyword">for</span> i := <span class="keyword">range</span> allRSs {</span><br><span class="line">	rs := allRSs[i]</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Add/remove any leftovers to the largest replica set.</span></span><br><span class="line">	<span class="keyword">if</span> i == <span class="number">0</span> &amp;&amp; deploymentReplicasToAdd != <span class="number">0</span> {</span><br><span class="line">		leftover := deploymentReplicasToAdd - deploymentReplicasAdded</span><br><span class="line">		nameToSize[rs.Name] = nameToSize[rs.Name] + leftover</span><br><span class="line">		<span class="keyword">if</span> nameToSize[rs.Name] &lt; <span class="number">0</span> {</span><br><span class="line">			nameToSize[rs.Name] = <span class="number">0</span></span><br><span class="line">		}</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// <span class="doctag">TODO:</span> Use transactions when we have them.</span></span><br><span class="line">	<span class="keyword">if</span> _, _, err := dc.scaleReplicaSet(rs, nameToSize[rs.Name], deployment, scalingOperation); err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="comment">// Return as soon as we fail, the deployment is requeued</span></span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p><code>scale</code> 方法的最后会直接调用 <code>scaleReplicaSet</code> 将每一个 ReplicaSet 都扩容或缩容到期望的副本数：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">scaleReplicaSet</span><span class="params">(rs *apps.ReplicaSet, newScale <span class="keyword">int32</span>, deployment *apps.Deployment, scalingOperation <span class="keyword">string</span>)</span> <span class="params">(<span class="keyword">bool</span>, *apps.ReplicaSet, error)</span></span> {</span><br><span class="line"></span><br><span class="line">	sizeNeedsUpdate := *(rs.Spec.Replicas) != newScale</span><br><span class="line"></span><br><span class="line">	annotationsNeedUpdate := deploymentutil.ReplicasAnnotationsNeedUpdate(rs, *(deployment.Spec.Replicas), *(deployment.Spec.Replicas)+deploymentutil.MaxSurge(*deployment))</span><br><span class="line"></span><br><span class="line">	scaled := <span class="literal">false</span></span><br><span class="line">	<span class="keyword">var</span> err error</span><br><span class="line">	<span class="keyword">if</span> sizeNeedsUpdate || annotationsNeedUpdate {</span><br><span class="line">		rsCopy := rs.DeepCopy()</span><br><span class="line">		*(rsCopy.Spec.Replicas) = newScale</span><br><span class="line">		deploymentutil.SetReplicasAnnotations(rsCopy, *(deployment.Spec.Replicas), *(deployment.Spec.Replicas)+deploymentutil.MaxSurge(*deployment))</span><br><span class="line">		rs, err = dc.client.AppsV1().ReplicaSets(rsCopy.Namespace).Update(context.TODO(), rsCopy, metav1.UpdateOptions{})</span><br><span class="line">		<span class="keyword">if</span> err == <span class="literal">nil</span> &amp;&amp; sizeNeedsUpdate {</span><br><span class="line">			scaled = <span class="literal">true</span></span><br><span class="line">			dc.eventRecorder.Eventf(deployment, v1.EventTypeNormal, <span class="string">"ScalingReplicaSet"</span>, <span class="string">"Scaled %s replica set %s to %d"</span>, scalingOperation, rs.Name, newScale)</span><br><span class="line">		}</span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">return</span> scaled, rs, err</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p>该方法会直接修改目标 ReplicaSet.Spec 中的 Replicas 参数和注解 <code>deployment.kubernetes.io/desired-replicas</code> 的值并通过 API 请求更新当前的 ReplicaSet 对象。</p>
+<p>用户可以通过 <code>kubectl describe</code> 命令查看 ReplicaSet 的 Annotations，其实能发现当前 RS 的期待副本数和最大副本数：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">$ kubectl describe rs nginx-deployment-76bf4969df</span><br><span class="line">Name:           nginx-deployment-76bf4969df</span><br><span class="line">Namespace:      default</span><br><span class="line">Selector:       app=nginx,pod-template-hash=76bf4969df</span><br><span class="line">Labels:         app=nginx</span><br><span class="line">                pod-template-hash=76bf4969df</span><br><span class="line">Annotations:    deployment.kubernetes.io/desired-replicas=4</span><br><span class="line">                deployment.kubernetes.io/max-replicas=5</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<h3 id="重新创建"><a href="#重新创建" class="headerlink" title="重新创建"></a>重新创建</h3><p>当 Deployment 使用的更新策略是 <code>Recreate</code> 时，DeploymentController 就会使用如下的 <code>rolloutRecreate</code> 方法对 Deployment 进行更新：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// rolloutRecreate implements the logic for recreating a replica set.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">rolloutRecreate</span><span class="params">(d *apps.Deployment, rsList []*apps.ReplicaSet, podMap <span class="keyword">map</span>[types.UID][]*v1.Pod)</span> <span class="title">error</span></span> {</span><br><span class="line">	<span class="comment">// Don't create a new RS if not already existed, so that we avoid scaling up before scaling down.</span></span><br><span class="line">	newRS, oldRSs, _ := dc.getAllReplicaSetsAndSyncRevision(d, rsList, <span class="literal">false</span>)</span><br><span class="line">	allRSs := <span class="built_in">append</span>(oldRSs, newRS)</span><br><span class="line">	activeOldRSs := controller.FilterActiveReplicaSets(oldRSs)</span><br><span class="line"></span><br><span class="line">	<span class="comment">// scale down old replica sets.</span></span><br><span class="line">	scaledDown, _ := dc.scaleDownOldReplicaSetsForRecreate(activeOldRSs, d)</span><br><span class="line">	<span class="keyword">if</span> scaledDown {</span><br><span class="line">		<span class="comment">// Update DeploymentStatus.</span></span><br><span class="line">		<span class="keyword">return</span> dc.syncRolloutStatus(allRSs, newRS, d)</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Do not process a deployment when it has old pods running.</span></span><br><span class="line">	<span class="keyword">if</span> oldPodsRunning(newRS, oldRSs, podMap) {</span><br><span class="line">		<span class="keyword">return</span> dc.syncRolloutStatus(allRSs, newRS, d)</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// If we need to create a new RS, create it now.</span></span><br><span class="line">	<span class="keyword">if</span> newRS == <span class="literal">nil</span> {</span><br><span class="line">		newRS, oldRSs, _ = dc.getAllReplicaSetsAndSyncRevision(d, rsList, <span class="literal">true</span>)</span><br><span class="line">		allRSs = <span class="built_in">append</span>(oldRSs, newRS)</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// scale up new replica set.</span></span><br><span class="line">	<span class="keyword">if</span> _, err := dc.scaleUpNewReplicaSetForRecreate(newRS, d); err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> util.DeploymentComplete(d, &amp;d.Status) {</span><br><span class="line">		<span class="keyword">if</span> err := dc.cleanupDeployment(oldRSs, d); err != <span class="literal">nil</span> {</span><br><span class="line">			<span class="keyword">return</span> err</span><br><span class="line">		}</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Sync deployment status.</span></span><br><span class="line">	<span class="keyword">return</span> dc.syncRolloutStatus(allRSs, newRS, d)</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>调用 <code>getAllReplicaSetsAndSyncRevision</code> 和 <code>FilterActiveReplicaSets</code> 两个方法获取 Deployment 中所有的 ReplicaSet 以及其中活跃的 ReplicaSet 对象；</li>
+<li>调用 <code>scaleDownOldReplicaSetsForRecreate</code> 方法将所有活跃的历史 ReplicaSet 持有的 Pod 数降低至 0；</li>
+<li>同步 Deployment 的最新状态并等待 Pod 的终止；</li>
+<li>在需要时通过 <code>getAllReplicaSetsAndSyncRevision</code> 方法创建新的 ReplicaSet 并调用 <code>scaleUpNewReplicaSetForRecreate</code> 函数对 ReplicaSet 进行扩容；</li>
+<li>更新完成之后会调用 cleanupDeployment 方法删除历史全部的 ReplicaSet 对象并更新 Deployment 的状态；</li>
+</ol>
+<p>也就是说在更新的过程中，之前创建的 ReplicaSet 和 Pod 资源会被全部删除，只是 Pod 会先被删除而 ReplicaSet 会后被删除；上述方法也会创建新的 ReplicaSet 和 Pod 对象。但是需要注意旧的 Pod 副本一定会被先删除，所以会有一段时间不存在可用的 Pod。</p>
+<h3 id="滚动更新"><a href="#滚动更新" class="headerlink" title="滚动更新"></a>滚动更新</h3><p>在使用 Deployment 对象时，我们更常用的更新策略是 <code>RollingUpdate</code>。在介绍滚动更新流程前，需要先了解两个参数：</p>
+<ol>
+<li><code>maxUnavailable</code>：表示在更新过程中能够进入不可用状态的 Pod 数量的最大值；</li>
+<li><code>maxSurge</code>：表示在更新过程汇总能够额外创建的 Pod 数量的最大值；</li>
+</ol>
+<p><code>maxUnavailable</code> 和 <code>maxSurge</code> 这两个滚动更新所使用的配置都可以用百分比或者绝对值表示；当使用百分比时，会使用 <mjx-container class="MathJax" jax="SVG"><svg style="vertical-align: -0.464ex" xmlns="http://www.w3.org/2000/svg" width="47.205ex" height="2.059ex" role="img" focusable="false" viewBox="0 -705 20864.8 910" xmlns:xlink="http://www.w3.org/1999/xlink"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="matrix(1 0 0 -1 0 0)"><g data-mml-node="math"><g data-mml-node="mi"><use xlink:href="#MJX-TEX-I-1D445"></use></g><g data-mml-node="mi" transform="translate(759, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(1225, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(1728, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(2026, 0)"><use xlink:href="#MJX-TEX-I-1D456"></use></g><g data-mml-node="mi" transform="translate(2371, 0)"><use xlink:href="#MJX-TEX-I-1D450"></use></g><g data-mml-node="mi" transform="translate(2804, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(3333, 0)"><use xlink:href="#MJX-TEX-I-1D460"></use></g><g data-mml-node="mo" transform="translate(4024.2, 0)"><use xlink:href="#MJX-TEX-N-D7"></use></g><g data-mml-node="mi" transform="translate(5024.4, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(5669.4, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mi" transform="translate(6030.4, 0)"><use xlink:href="#MJX-TEX-I-1D45F"></use></g><g data-mml-node="mi" transform="translate(6481.4, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(7010.4, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mi" transform="translate(7371.4, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mi" transform="translate(7837.4, 0)"><use xlink:href="#MJX-TEX-I-1D454"></use></g><g data-mml-node="mi" transform="translate(8314.4, 0)"><use xlink:href="#MJX-TEX-I-1D466"></use></g><g data-mml-node="mo" transform="translate(8804.4, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(9249.1, 0)"><use xlink:href="#MJX-TEX-I-1D445"></use></g><g data-mml-node="mi" transform="translate(10008.1, 0)"><use xlink:href="#MJX-TEX-I-1D45C"></use></g><g data-mml-node="mi" transform="translate(10493.1, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(10791.1, 0)"><use xlink:href="#MJX-TEX-I-1D459"></use></g><g data-mml-node="mi" transform="translate(11089.1, 0)"><use xlink:href="#MJX-TEX-I-1D456"></use></g><g data-mml-node="mi" transform="translate(11434.1, 0)"><use xlink:href="#MJX-TEX-I-1D45B"></use></g><g data-mml-node="mi" transform="translate(12034.1, 0)"><use xlink:href="#MJX-TEX-I-1D454"></use></g><g data-mml-node="mi" transform="translate(12511.1, 0)"><use xlink:href="#MJX-TEX-I-1D448"></use></g><g data-mml-node="mi" transform="translate(13278.1, 0)"><use xlink:href="#MJX-TEX-I-1D45D"></use></g><g data-mml-node="mi" transform="translate(13781.1, 0)"><use xlink:href="#MJX-TEX-I-1D451"></use></g><g data-mml-node="mi" transform="translate(14301.1, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(14830.1, 0)"><use xlink:href="#MJX-TEX-I-1D461"></use></g><g data-mml-node="mi" transform="translate(15191.1, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g><g data-mml-node="mo" transform="translate(15657.1, 0)"><use xlink:href="#MJX-TEX-N-2E"></use></g><g data-mml-node="mi" transform="translate(16101.8, 0)"><use xlink:href="#MJX-TEX-I-1D440"></use></g><g data-mml-node="mi" transform="translate(17152.8, 0)"><use xlink:href="#MJX-TEX-I-1D44E"></use></g><g data-mml-node="mi" transform="translate(17681.8, 0)"><use xlink:href="#MJX-TEX-I-1D465"></use></g><g data-mml-node="mi" transform="translate(18253.8, 0)"><use xlink:href="#MJX-TEX-I-1D446"></use></g><g data-mml-node="mi" transform="translate(18898.8, 0)"><use xlink:href="#MJX-TEX-I-1D462"></use></g><g data-mml-node="mi" transform="translate(19470.8, 0)"><use xlink:href="#MJX-TEX-I-1D45F"></use></g><g data-mml-node="mi" transform="translate(19921.8, 0)"><use xlink:href="#MJX-TEX-I-1D454"></use></g><g data-mml-node="mi" transform="translate(20398.8, 0)"><use xlink:href="#MJX-TEX-I-1D452"></use></g></g></g></svg></mjx-container> 计算得到相应的值。</p>
+<p><code>rolloutRolling</code> 为处理滚动更新的方法：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// rolloutRolling implements the logic for rolling a new replica set.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">rolloutRolling</span><span class="params">(d *apps.Deployment, rsList []*apps.ReplicaSet)</span> <span class="title">error</span></span> {</span><br><span class="line">	newRS, oldRSs, err := dc.getAllReplicaSetsAndSyncRevision(d, rsList, <span class="literal">true</span>)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">	allRSs := <span class="built_in">append</span>(oldRSs, newRS)</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Scale up, if we can.</span></span><br><span class="line">	scaledUp, err := dc.reconcileNewReplicaSet(allRSs, newRS, d)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">if</span> scaledUp {</span><br><span class="line">		<span class="comment">// Update DeploymentStatus</span></span><br><span class="line">		<span class="keyword">return</span> dc.syncRolloutStatus(allRSs, newRS, d)</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Scale down, if we can.</span></span><br><span class="line">	scaledDown, err := dc.reconcileOldReplicaSets(allRSs, controller.FilterActiveReplicaSets(oldRSs), newRS, d)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> err</span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">if</span> scaledDown {</span><br><span class="line">		<span class="comment">// Update DeploymentStatus</span></span><br><span class="line">		<span class="keyword">return</span> dc.syncRolloutStatus(allRSs, newRS, d)</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> deploymentutil.DeploymentComplete(d, &amp;d.Status) {</span><br><span class="line">		<span class="keyword">if</span> err := dc.cleanupDeployment(oldRSs, d); err != <span class="literal">nil</span> {</span><br><span class="line">			<span class="keyword">return</span> err</span><br><span class="line">		}</span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Sync deployment status</span></span><br><span class="line">	<span class="keyword">return</span> dc.syncRolloutStatus(allRSs, newRS, d)</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>首先，获取 Deployment 持有的全部 ReplicaSet 的资源；</li>
+<li>调用 <code>reconcileNewReplicaSet</code> 调节新的 ReplicaSet 的副本数，创建新的 Pod 并保证额外的副本数量不超过 <code>maxSurge</code>;</li>
+<li>调用 <code>reconcileOldReplicaSets</code> 调节历史 ReplicaSet 的副本数，删除旧的 Pod 并保证不可用的部分不超过 <code>maxUnavailable</code>;</li>
+<li>删除无用的 ReplicaSet 并更新 Deployment 的状态；</li>
+</ol>
+<p>注意，在滚动更新过程中，Kubernetes 不是一次性就切换到期望的状态，即「目标副本数」，而是先启动新的 ReplicaSet 及一部分 Pod，然后删除历史 ReplicaSet 中的部分；如此往复，最终达到集群期望的状态。</p>
+<p>当使用 <code>reconcileNewReplicaSet</code> 对新 ReplicaSet 进行调节时，如果发现新 ReplicaSet 中副本数满足期望则直接返回，在超过期望时则缩容。：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">reconcileNewReplicaSet</span><span class="params">(allRSs []*apps.ReplicaSet, newRS *apps.ReplicaSet, deployment *apps.Deployment)</span> <span class="params">(<span class="keyword">bool</span>, error)</span></span> {</span><br><span class="line">	<span class="keyword">if</span> *(newRS.Spec.Replicas) == *(deployment.Spec.Replicas) {</span><br><span class="line">		<span class="comment">// Scaling not required.</span></span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span>, <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line">	<span class="keyword">if</span> *(newRS.Spec.Replicas) &gt; *(deployment.Spec.Replicas) {</span><br><span class="line">		<span class="comment">// Scale down.</span></span><br><span class="line">		scaled, _, err := dc.scaleReplicaSetAndRecordEvent(newRS, *(deployment.Spec.Replicas), deployment)</span><br><span class="line">		<span class="keyword">return</span> scaled, err</span><br><span class="line">	}</span><br><span class="line">	newReplicasCount, err := deploymentutil.NewRSNewReplicas(deployment, allRSs, newRS)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span>, err</span><br><span class="line">	}</span><br><span class="line">	scaled, _, err := dc.scaleReplicaSetAndRecordEvent(newRS, newReplicasCount, deployment)</span><br><span class="line">	<span class="keyword">return</span> scaled, err</span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<p>如果 ReplicaSet 的数量不够则调用 <code>NewRSNewReplicas</code> 计算新的副本个数，计算过程为：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">currentPodCount := GetReplicaCountForReplicaSets(allRSs)</span><br><span class="line">maxTotalPods := *(deployment.Spec.Replicas) + <span class="keyword">int32</span>(maxSurge)</span><br><span class="line"><span class="comment">// Scale up.</span></span><br><span class="line">scaleUpCount := maxTotalPods - currentPodCount</span><br><span class="line"><span class="comment">// Do not exceed the number of desired replicas.</span></span><br><span class="line">scaleUpCount = Min(<span class="keyword">int</span>(scaleUpCount), <span class="keyword">int</span>(*(deployment.Spec.Replicas)-*(newRS.Spec.Replicas))))</span><br><span class="line"><span class="keyword">return</span> *(newRS.Spec.Replicas) + scaleUpCount</span><br></pre></td></tr></table></figure>
+
+<p>该过程中需要考虑 Deployment 期望的副本数、当前可用的副本数记忆新的 RS 持有的副本数，此外还有最大最小值的限制。</p>
+<p>另一个滚动更新中使用的方法 <code>reconcileOldReplicaSets</code> 主要作用是对历史 ReplicaSet 对象持有的副本数量进行缩容：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(dc *DeploymentController)</span> <span class="title">reconcileOldReplicaSets</span><span class="params">(allRSs []*apps.ReplicaSet, oldRSs []*apps.ReplicaSet, newRS *apps.ReplicaSet, deployment *apps.Deployment)</span> <span class="params">(<span class="keyword">bool</span>, error)</span></span> {</span><br><span class="line">	oldPodsCount := deploymentutil.GetReplicaCountForReplicaSets(oldRSs)</span><br><span class="line">	<span class="keyword">if</span> oldPodsCount == <span class="number">0</span> {</span><br><span class="line">		<span class="comment">// Can't scale down further</span></span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span>, <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line"></span><br><span class="line">	allPodsCount := deploymentutil.GetReplicaCountForReplicaSets(allRSs)</span><br><span class="line">	klog.V(<span class="number">4</span>).Infof(<span class="string">"New replica set %s/%s has %d available pods."</span>, newRS.Namespace, newRS.Name, newRS.Status.AvailableReplicas)</span><br><span class="line">	maxUnavailable := deploymentutil.MaxUnavailable(*deployment)</span><br><span class="line">	minAvailable := *(deployment.Spec.Replicas) - maxUnavailable</span><br><span class="line">	newRSUnavailablePodCount := *(newRS.Spec.Replicas) - newRS.Status.AvailableReplicas</span><br><span class="line">	maxScaledDown := allPodsCount - minAvailable - newRSUnavailablePodCount</span><br><span class="line">	<span class="keyword">if</span> maxScaledDown &lt;= <span class="number">0</span> {</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span>, <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line">	oldRSs, cleanupCount, err := dc.cleanupUnhealthyReplicas(oldRSs, deployment, maxScaledDown)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span>, <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line">	klog.V(<span class="number">4</span>).Infof(<span class="string">"Cleaned up unhealthy replicas from old RSes by %d"</span>, cleanupCount)</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Scale down old replica sets, need check maxUnavailable to ensure we can scale down</span></span><br><span class="line">	allRSs = <span class="built_in">append</span>(oldRSs, newRS)</span><br><span class="line">	scaledDownCount, err := dc.scaleDownOldReplicaSetsForRollingUpdate(allRSs, oldRSs, deployment)</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> {</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">false</span>, <span class="literal">nil</span></span><br><span class="line">	}</span><br><span class="line">	klog.V(<span class="number">4</span>).Infof(<span class="string">"Scaled down old RSes of deployment %s by %d"</span>, deployment.Name, scaledDownCount)</span><br><span class="line"></span><br><span class="line">	totalScaledDown := cleanupCount + scaledDownCount</span><br><span class="line">	<span class="keyword">return</span> totalScaledDown &gt; <span class="number">0</span>, <span class="literal">nil</span></span><br><span class="line">}</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>计算历史 ReplicaSet 持有的副本总数；</li>
+<li>计算全部 ReplicaSet 持有的副本总数；</li>
+<li>根据 Deployment 期望的副本数、最大不可用的副本数以及新的 ReplicaSet 中不可用的 Pod 数量计算最大缩容个副本个数；</li>
+<li>利用 <code>cleanupUnhealthyReplicas</code> 清理 ReplicaSet 中处于不健康状态的副本；</li>
+<li>利用 <code>scaleDownOldReplicaSetsForRollingUpdate</code> 对历史 ReplicaSet 中的副本进行缩容；</li>
+</ol>
+<h3 id="回滚"><a href="#回滚" class="headerlink" title="回滚"></a>回滚</h3><p>Kubernetes 中的每一个 Deployment 资源都包含 <code>revision</code> 概念，版本的使用可以让我们在更新不符合预期是及时通过 Deployment 的版本对其进行回滚。当我们更新 Deployment 时，之前 Deployment 持有的 ReplicaSet 会被清理。Deployment 通过规格中的 <code>revisionHistoryLimit</code> 字段配置最多保留的 ReplicaSet 数量，及多少个版本，这些 ReplicaSet 并不会被删除，它们只是不持有任何的 Pod 副本。</p>
+<p>保留这些资源能够方便 Deployment 进行回滚，回滚荣国客户端调用 <code>rollout undo</code> 命令实现：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">kubectl rollout undo deployment.v1.apps/nginx-deployment</span><br><span class="line">deployment.apps/nginx-deployment</span><br></pre></td></tr></table></figure>
+
+<p>上述命令没有指定版本号，所以默认回滚到上一个版本。如果在回滚时指定版本，那么 Kubernetes 就会根据传入的版本查找历史的 ReplicaSet 资源，并触发一个资源更新请求.</p>
+<p>回滚对于 Kubernetes 来说与更新操作没有区别，在每次更新时都会根据模板在历史 ReplicaSet 中查询是否有相同的 ReplicaSet 存在。如果存在规格完全相同的 ReplicaSet，就会保留这个 ReplicaSet 历史上使用的版本号并对该 ReplicaSet 重新扩容并对正在工作的 ReplicaSet 进行缩容以实现期望状态。</p>
+<h3 id="删除"><a href="#删除" class="headerlink" title="删除"></a>删除</h3><p>如果用户在 Kubernetes 中删除了一个 Deployment 资源，那么 Deployment 持有的 ReplicaSet 以及 ReplicaSet 持有的副本都会被 Kubernetes 中的垃圾收集器删除。</p>
+<p>由于和当前 Deployment 有关的 ReplicaSet 历史和最新版本都会被删除，所以对应的 Pod 副本也都会随之被删除，这些字段都是通过 <code>metadata.ownerReference</code> 字段关联。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>本文分析了 Deployment 这个在 Kubernetes 中最常使用的编排控制的实现和工作原理。</p>
+<p>Deployment 实际上是一个两层控制器。首先它通过 ReplicaSet 的个数描述应用的版本；然后通过 ReplicaSet 的属性，保证 Pod 的数量。</p>
+<blockquote>
+<p>Deployment 控制 ReplicaSet（版本），ReplicaSet 控制 Pod（副本数）。</p>
+</blockquote>
+<p>Deployment 的设计实际上代替了对应用的抽象，是我们可以使用该 Deployment 来描述应用。</p>
+<h2 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h2><ol>
+<li><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/" target="_blank" rel="noopener">Kubernetes — Deployment</a></li>
+<li><a href="https://time.geekbang.org/column/article/40906" target="_blank" rel="noopener">极客时间 — 深入剖析 Kubernetes</a></li>
+<li><a href="https://draveness.me/kubernetes-deployment/" target="_blank" rel="noopener">详解 Kubernetes Deployment 的实现原理</a></li>
+</ol>
+<svg style="display: none" id="MJX-SVG-global-cache"><defs><path id="MJX-TEX-I-1D45F" d="M21 287Q22 290 23 295T28 317T38 348T53 381T73 411T99 433T132 442Q161 442 183 430T214 408T225 388Q227 382 228 382T236 389Q284 441 347 441H350Q398 441 422 400Q430 381 430 363Q430 333 417 315T391 292T366 288Q346 288 334 299T322 328Q322 376 378 392Q356 405 342 405Q286 405 239 331Q229 315 224 298T190 165Q156 25 151 16Q138 -11 108 -11Q95 -11 87 -5T76 7T74 17Q74 30 114 189T154 366Q154 405 128 405Q107 405 92 377T68 316T57 280Q55 278 41 278H27Q21 284 21 287Z"></path><path id="MJX-TEX-I-1D452" d="M39 168Q39 225 58 272T107 350T174 402T244 433T307 442H310Q355 442 388 420T421 355Q421 265 310 237Q261 224 176 223Q139 223 138 221Q138 219 132 186T125 128Q125 81 146 54T209 26T302 45T394 111Q403 121 406 121Q410 121 419 112T429 98T420 82T390 55T344 24T281 -1T205 -11Q126 -11 83 42T39 168ZM373 353Q367 405 305 405Q272 405 244 391T199 357T170 316T154 280T149 261Q149 260 169 260Q282 260 327 284T373 353Z"></path><path id="MJX-TEX-I-1D45D" d="M23 287Q24 290 25 295T30 317T40 348T55 381T75 411T101 433T134 442Q209 442 230 378L240 387Q302 442 358 442Q423 442 460 395T497 281Q497 173 421 82T249 -10Q227 -10 210 -4Q199 1 187 11T168 28L161 36Q160 35 139 -51T118 -138Q118 -144 126 -145T163 -148H188Q194 -155 194 -157T191 -175Q188 -187 185 -190T172 -194Q170 -194 161 -194T127 -193T65 -192Q-5 -192 -24 -194H-32Q-39 -187 -39 -183Q-37 -156 -26 -148H-6Q28 -147 33 -136Q36 -130 94 103T155 350Q156 355 156 364Q156 405 131 405Q109 405 94 377T71 316T59 280Q57 278 43 278H29Q23 284 23 287ZM178 102Q200 26 252 26Q282 26 310 49T356 107Q374 141 392 215T411 325V331Q411 405 350 405Q339 405 328 402T306 393T286 380T269 365T254 350T243 336T235 326L232 322Q232 321 229 308T218 264T204 212Q178 106 178 102Z"></path><path id="MJX-TEX-I-1D459" d="M117 59Q117 26 142 26Q179 26 205 131Q211 151 215 152Q217 153 225 153H229Q238 153 241 153T246 151T248 144Q247 138 245 128T234 90T214 43T183 6T137 -11Q101 -11 70 11T38 85Q38 97 39 102L104 360Q167 615 167 623Q167 626 166 628T162 632T157 634T149 635T141 636T132 637T122 637Q112 637 109 637T101 638T95 641T94 647Q94 649 96 661Q101 680 107 682T179 688Q194 689 213 690T243 693T254 694Q266 694 266 686Q266 675 193 386T118 83Q118 81 118 75T117 65V59Z"></path><path id="MJX-TEX-I-1D456" d="M184 600Q184 624 203 642T247 661Q265 661 277 649T290 619Q290 596 270 577T226 557Q211 557 198 567T184 600ZM21 287Q21 295 30 318T54 369T98 420T158 442Q197 442 223 419T250 357Q250 340 236 301T196 196T154 83Q149 61 149 51Q149 26 166 26Q175 26 185 29T208 43T235 78T260 137Q263 149 265 151T282 153Q302 153 302 143Q302 135 293 112T268 61T223 11T161 -11Q129 -11 102 10T74 74Q74 91 79 106T122 220Q160 321 166 341T173 380Q173 404 156 404H154Q124 404 99 371T61 287Q60 286 59 284T58 281T56 279T53 278T49 278T41 278H27Q21 284 21 287Z"></path><path id="MJX-TEX-I-1D450" d="M34 159Q34 268 120 355T306 442Q362 442 394 418T427 355Q427 326 408 306T360 285Q341 285 330 295T319 325T330 359T352 380T366 386H367Q367 388 361 392T340 400T306 404Q276 404 249 390Q228 381 206 359Q162 315 142 235T121 119Q121 73 147 50Q169 26 205 26H209Q321 26 394 111Q403 121 406 121Q410 121 419 112T429 98T420 83T391 55T346 25T282 0T202 -11Q127 -11 81 37T34 159Z"></path><path id="MJX-TEX-I-1D44E" d="M33 157Q33 258 109 349T280 441Q331 441 370 392Q386 422 416 422Q429 422 439 414T449 394Q449 381 412 234T374 68Q374 43 381 35T402 26Q411 27 422 35Q443 55 463 131Q469 151 473 152Q475 153 483 153H487Q506 153 506 144Q506 138 501 117T481 63T449 13Q436 0 417 -8Q409 -10 393 -10Q359 -10 336 5T306 36L300 51Q299 52 296 50Q294 48 292 46Q233 -10 172 -10Q117 -10 75 30T33 157ZM351 328Q351 334 346 350T323 385T277 405Q242 405 210 374T160 293Q131 214 119 129Q119 126 119 118T118 106Q118 61 136 44T179 26Q217 26 254 59T298 110Q300 114 325 217T351 328Z"></path><path id="MJX-TEX-I-1D446" d="M308 24Q367 24 416 76T466 197Q466 260 414 284Q308 311 278 321T236 341Q176 383 176 462Q176 523 208 573T273 648Q302 673 343 688T407 704H418H425Q521 704 564 640Q565 640 577 653T603 682T623 704Q624 704 627 704T632 705Q645 705 645 698T617 577T585 459T569 456Q549 456 549 465Q549 471 550 475Q550 478 551 494T553 520Q553 554 544 579T526 616T501 641Q465 662 419 662Q362 662 313 616T263 510Q263 480 278 458T319 427Q323 425 389 408T456 390Q490 379 522 342T554 242Q554 216 546 186Q541 164 528 137T492 78T426 18T332 -20Q320 -22 298 -22Q199 -22 144 33L134 44L106 13Q83 -14 78 -18T65 -22Q52 -22 52 -14Q52 -11 110 221Q112 227 130 227H143Q149 221 149 216Q149 214 148 207T144 186T142 153Q144 114 160 87T203 47T255 29T308 24Z"></path><path id="MJX-TEX-I-1D461" d="M26 385Q19 392 19 395Q19 399 22 411T27 425Q29 430 36 430T87 431H140L159 511Q162 522 166 540T173 566T179 586T187 603T197 615T211 624T229 626Q247 625 254 615T261 596Q261 589 252 549T232 470L222 433Q222 431 272 431H323Q330 424 330 420Q330 398 317 385H210L174 240Q135 80 135 68Q135 26 162 26Q197 26 230 60T283 144Q285 150 288 151T303 153H307Q322 153 322 145Q322 142 319 133Q314 117 301 95T267 48T216 6T155 -11Q125 -11 98 4T59 56Q57 64 57 83V101L92 241Q127 382 128 383Q128 385 77 385H26Z"></path><path id="MJX-TEX-N-2E" d="M78 60Q78 84 95 102T138 120Q162 120 180 104T199 61Q199 36 182 18T139 0T96 17T78 60Z"></path><path id="MJX-TEX-I-1D445" d="M230 637Q203 637 198 638T193 649Q193 676 204 682Q206 683 378 683Q550 682 564 680Q620 672 658 652T712 606T733 563T739 529Q739 484 710 445T643 385T576 351T538 338L545 333Q612 295 612 223Q612 212 607 162T602 80V71Q602 53 603 43T614 25T640 16Q668 16 686 38T712 85Q717 99 720 102T735 105Q755 105 755 93Q755 75 731 36Q693 -21 641 -21H632Q571 -21 531 4T487 82Q487 109 502 166T517 239Q517 290 474 313Q459 320 449 321T378 323H309L277 193Q244 61 244 59Q244 55 245 54T252 50T269 48T302 46H333Q339 38 339 37T336 19Q332 6 326 0H311Q275 2 180 2Q146 2 117 2T71 2T50 1Q33 1 33 10Q33 12 36 24Q41 43 46 45Q50 46 61 46H67Q94 46 127 49Q141 52 146 61Q149 65 218 339T287 628Q287 635 230 637ZM630 554Q630 586 609 608T523 636Q521 636 500 636T462 637H440Q393 637 386 627Q385 624 352 494T319 361Q319 360 388 360Q466 361 492 367Q556 377 592 426Q608 449 619 486T630 554Z"></path><path id="MJX-TEX-I-1D460" d="M131 289Q131 321 147 354T203 415T300 442Q362 442 390 415T419 355Q419 323 402 308T364 292Q351 292 340 300T328 326Q328 342 337 354T354 372T367 378Q368 378 368 379Q368 382 361 388T336 399T297 405Q249 405 227 379T204 326Q204 301 223 291T278 274T330 259Q396 230 396 163Q396 135 385 107T352 51T289 7T195 -10Q118 -10 86 19T53 87Q53 126 74 143T118 160Q133 160 146 151T160 120Q160 94 142 76T111 58Q109 57 108 57T107 55Q108 52 115 47T146 34T201 27Q237 27 263 38T301 66T318 97T323 122Q323 150 302 164T254 181T195 196T148 231Q131 256 131 289Z"></path><path id="MJX-TEX-N-D7" d="M630 29Q630 9 609 9Q604 9 587 25T493 118L389 222L284 117Q178 13 175 11Q171 9 168 9Q160 9 154 15T147 29Q147 36 161 51T255 146L359 250L255 354Q174 435 161 449T147 471Q147 480 153 485T168 490Q173 490 175 489Q178 487 284 383L389 278L493 382Q570 459 587 475T609 491Q630 491 630 471Q630 464 620 453T522 355L418 250L522 145Q606 61 618 48T630 29Z"></path><path id="MJX-TEX-S3-28" d="M701 -940Q701 -943 695 -949H664Q662 -947 636 -922T591 -879T537 -818T475 -737T412 -636T350 -511T295 -362T250 -186T221 17T209 251Q209 962 573 1361Q596 1386 616 1405T649 1437T664 1450H695Q701 1444 701 1441Q701 1436 681 1415T629 1356T557 1261T476 1118T400 927T340 675T308 359Q306 321 306 250Q306 -139 400 -430T690 -924Q701 -936 701 -940Z"></path><path id="MJX-TEX-I-1D451" d="M366 683Q367 683 438 688T511 694Q523 694 523 686Q523 679 450 384T375 83T374 68Q374 26 402 26Q411 27 422 35Q443 55 463 131Q469 151 473 152Q475 153 483 153H487H491Q506 153 506 145Q506 140 503 129Q490 79 473 48T445 8T417 -8Q409 -10 393 -10Q359 -10 336 5T306 36L300 51Q299 52 296 50Q294 48 292 46Q233 -10 172 -10Q117 -10 75 30T33 157Q33 205 53 255T101 341Q148 398 195 420T280 442Q336 442 364 400Q369 394 369 396Q370 400 396 505T424 616Q424 629 417 632T378 637H357Q351 643 351 645T353 664Q358 683 366 683ZM352 326Q329 405 277 405Q242 405 210 374T160 293Q131 214 119 129Q119 126 119 118T118 106Q118 61 136 44T179 26Q233 26 290 98L298 109L352 326Z"></path><path id="MJX-TEX-I-1D45C" d="M201 -11Q126 -11 80 38T34 156Q34 221 64 279T146 380Q222 441 301 441Q333 441 341 440Q354 437 367 433T402 417T438 387T464 338T476 268Q476 161 390 75T201 -11ZM121 120Q121 70 147 48T206 26Q250 26 289 58T351 142Q360 163 374 216T388 308Q388 352 370 375Q346 405 306 405Q243 405 195 347Q158 303 140 230T121 120Z"></path><path id="MJX-TEX-I-1D466" d="M21 287Q21 301 36 335T84 406T158 442Q199 442 224 419T250 355Q248 336 247 334Q247 331 231 288T198 191T182 105Q182 62 196 45T238 27Q261 27 281 38T312 61T339 94Q339 95 344 114T358 173T377 247Q415 397 419 404Q432 431 462 431Q475 431 483 424T494 412T496 403Q496 390 447 193T391 -23Q363 -106 294 -155T156 -205Q111 -205 77 -183T43 -117Q43 -95 50 -80T69 -58T89 -48T106 -45Q150 -45 150 -87Q150 -107 138 -122T115 -142T102 -147L99 -148Q101 -153 118 -160T152 -167H160Q177 -167 186 -165Q219 -156 247 -127T290 -65T313 -9T321 21L315 17Q309 13 296 6T270 -6Q250 -11 231 -11Q185 -11 150 11T104 82Q103 89 103 113Q103 170 138 262T173 379Q173 380 173 381Q173 390 173 393T169 400T158 404H154Q131 404 112 385T82 344T65 302T57 280Q55 278 41 278H27Q21 284 21 287Z"></path><path id="MJX-TEX-I-1D45A" d="M21 287Q22 293 24 303T36 341T56 388T88 425T132 442T175 435T205 417T221 395T229 376L231 369Q231 367 232 367L243 378Q303 442 384 442Q401 442 415 440T441 433T460 423T475 411T485 398T493 385T497 373T500 364T502 357L510 367Q573 442 659 442Q713 442 746 415T780 336Q780 285 742 178T704 50Q705 36 709 31T724 26Q752 26 776 56T815 138Q818 149 821 151T837 153Q857 153 857 145Q857 144 853 130Q845 101 831 73T785 17T716 -10Q669 -10 648 17T627 73Q627 92 663 193T700 345Q700 404 656 404H651Q565 404 506 303L499 291L466 157Q433 26 428 16Q415 -11 385 -11Q372 -11 364 -4T353 8T350 18Q350 29 384 161L420 307Q423 322 423 345Q423 404 379 404H374Q288 404 229 303L222 291L189 157Q156 26 151 16Q138 -11 108 -11Q95 -11 87 -5T76 7T74 17Q74 30 112 181Q151 335 151 342Q154 357 154 369Q154 405 129 405Q107 405 92 377T69 316T57 280Q55 278 41 278H27Q21 284 21 287Z"></path><path id="MJX-TEX-I-1D45B" d="M21 287Q22 293 24 303T36 341T56 388T89 425T135 442Q171 442 195 424T225 390T231 369Q231 367 232 367L243 378Q304 442 382 442Q436 442 469 415T503 336T465 179T427 52Q427 26 444 26Q450 26 453 27Q482 32 505 65T540 145Q542 153 560 153Q580 153 580 145Q580 144 576 130Q568 101 554 73T508 17T439 -10Q392 -10 371 17T350 73Q350 92 386 193T423 345Q423 404 379 404H374Q288 404 229 303L222 291L189 157Q156 26 151 16Q138 -11 108 -11Q95 -11 87 -5T76 7T74 17Q74 30 112 180T152 343Q153 348 153 366Q153 405 129 405Q91 405 66 305Q60 285 60 284Q58 278 41 278H27Q21 284 21 287Z"></path><path id="MJX-TEX-N-2B" d="M56 237T56 250T70 270H369V420L370 570Q380 583 389 583Q402 583 409 568V270H707Q722 262 722 250T707 230H409V-68Q401 -82 391 -82H389H387Q375 -82 369 -68V230H70Q56 237 56 250Z"></path><path id="MJX-TEX-I-1D465" d="M52 289Q59 331 106 386T222 442Q257 442 286 424T329 379Q371 442 430 442Q467 442 494 420T522 361Q522 332 508 314T481 292T458 288Q439 288 427 299T415 328Q415 374 465 391Q454 404 425 404Q412 404 406 402Q368 386 350 336Q290 115 290 78Q290 50 306 38T341 26Q378 26 414 59T463 140Q466 150 469 151T485 153H489Q504 153 504 145Q504 144 502 134Q486 77 440 33T333 -11Q263 -11 227 52Q186 -10 133 -10H127Q78 -10 57 16T35 71Q35 103 54 123T99 143Q142 143 142 101Q142 81 130 66T107 46T94 41L91 40Q91 39 97 36T113 29T132 26Q168 26 194 71Q203 87 217 139T245 247T261 313Q266 340 266 352Q266 380 251 392T217 404Q177 404 142 372T93 290Q91 281 88 280T72 278H58Q52 284 52 289Z"></path><path id="MJX-TEX-I-1D462" d="M21 287Q21 295 30 318T55 370T99 420T158 442Q204 442 227 417T250 358Q250 340 216 246T182 105Q182 62 196 45T238 27T291 44T328 78L339 95Q341 99 377 247Q407 367 413 387T427 416Q444 431 463 431Q480 431 488 421T496 402L420 84Q419 79 419 68Q419 43 426 35T447 26Q469 29 482 57T512 145Q514 153 532 153Q551 153 551 144Q550 139 549 130T540 98T523 55T498 17T462 -8Q454 -10 438 -10Q372 -10 347 46Q345 45 336 36T318 21T296 6T267 -6T233 -11Q189 -11 155 7Q103 38 103 113Q103 170 138 262T173 379Q173 380 173 381Q173 390 173 393T169 400T158 404H154Q131 404 112 385T82 344T65 302T57 280Q55 278 41 278H27Q21 284 21 287Z"></path><path id="MJX-TEX-I-1D454" d="M311 43Q296 30 267 15T206 0Q143 0 105 45T66 160Q66 265 143 353T314 442Q361 442 401 394L404 398Q406 401 409 404T418 412T431 419T447 422Q461 422 470 413T480 394Q480 379 423 152T363 -80Q345 -134 286 -169T151 -205Q10 -205 10 -137Q10 -111 28 -91T74 -71Q89 -71 102 -80T116 -111Q116 -121 114 -130T107 -144T99 -154T92 -162L90 -164H91Q101 -167 151 -167Q189 -167 211 -155Q234 -144 254 -122T282 -75Q288 -56 298 -13Q311 35 311 43ZM384 328L380 339Q377 350 375 354T369 368T359 382T346 393T328 402T306 405Q262 405 221 352Q191 313 171 233T151 117Q151 38 213 38Q269 38 323 108L331 118L384 328Z"></path><path id="MJX-TEX-N-28" d="M94 250Q94 319 104 381T127 488T164 576T202 643T244 695T277 729T302 750H315H319Q333 750 333 741Q333 738 316 720T275 667T226 581T184 443T167 250T184 58T225 -81T274 -167T316 -220T333 -241Q333 -250 318 -250H315H302L274 -226Q180 -141 137 -14T94 250Z"></path><path id="MJX-TEX-N-29" d="M60 749L64 750Q69 750 74 750H86L114 726Q208 641 251 514T294 250Q294 182 284 119T261 12T224 -76T186 -143T145 -194T113 -227T90 -246Q87 -249 86 -250H74Q66 -250 63 -250T58 -247T55 -238Q56 -237 66 -225Q221 -64 221 250T66 725Q56 737 55 738Q55 746 60 749Z"></path><path id="MJX-TEX-N-2212" d="M84 237T84 250T98 270H679Q694 262 694 250T679 230H98Q84 237 84 250Z"></path><path id="MJX-TEX-N-31" d="M213 578L200 573Q186 568 160 563T102 556H83V602H102Q149 604 189 617T245 641T273 663Q275 666 285 666Q294 666 302 660V361L303 61Q310 54 315 52T339 48T401 46H427V0H416Q395 3 257 3Q121 3 100 0H88V46H114Q136 46 152 46T177 47T193 50T201 52T207 57T213 61V578Z"></path><path id="MJX-TEX-S3-29" d="M34 1438Q34 1446 37 1448T50 1450H56H71Q73 1448 99 1423T144 1380T198 1319T260 1238T323 1137T385 1013T440 864T485 688T514 485T526 251Q526 134 519 53Q472 -519 162 -860Q139 -885 119 -904T86 -936T71 -949H56Q43 -949 39 -947T34 -937Q88 -883 140 -813Q428 -430 428 251Q428 453 402 628T338 922T245 1146T145 1309T46 1425Q44 1427 42 1429T39 1433T36 1436L34 1438Z"></path><path id="MJX-TEX-I-1D448" d="M107 637Q73 637 71 641Q70 643 70 649Q70 673 81 682Q83 683 98 683Q139 681 234 681Q268 681 297 681T342 682T362 682Q378 682 378 672Q378 670 376 658Q371 641 366 638H364Q362 638 359 638T352 638T343 637T334 637Q295 636 284 634T266 623Q265 621 238 518T184 302T154 169Q152 155 152 140Q152 86 183 55T269 24Q336 24 403 69T501 205L552 406Q599 598 599 606Q599 633 535 637Q511 637 511 648Q511 650 513 660Q517 676 519 679T529 683Q532 683 561 682T645 680Q696 680 723 681T752 682Q767 682 767 672Q767 650 759 642Q756 637 737 637Q666 633 648 597Q646 592 598 404Q557 235 548 205Q515 105 433 42T263 -22Q171 -22 116 34T60 167V183Q60 201 115 421Q164 622 164 628Q164 635 107 637Z"></path><path id="MJX-TEX-I-1D440" d="M289 629Q289 635 232 637Q208 637 201 638T194 648Q194 649 196 659Q197 662 198 666T199 671T201 676T203 679T207 681T212 683T220 683T232 684Q238 684 262 684T307 683Q386 683 398 683T414 678Q415 674 451 396L487 117L510 154Q534 190 574 254T662 394Q837 673 839 675Q840 676 842 678T846 681L852 683H948Q965 683 988 683T1017 684Q1051 684 1051 673Q1051 668 1048 656T1045 643Q1041 637 1008 637Q968 636 957 634T939 623Q936 618 867 340T797 59Q797 55 798 54T805 50T822 48T855 46H886Q892 37 892 35Q892 19 885 5Q880 0 869 0Q864 0 828 1T736 2Q675 2 644 2T609 1Q592 1 592 11Q592 13 594 25Q598 41 602 43T625 46Q652 46 685 49Q699 52 704 61Q706 65 742 207T813 490T848 631L654 322Q458 10 453 5Q451 4 449 3Q444 0 433 0Q418 0 415 7Q413 11 374 317L335 624L267 354Q200 88 200 79Q206 46 272 46H282Q288 41 289 37T286 19Q282 3 278 1Q274 0 267 0Q265 0 255 0T221 1T157 2Q127 2 95 1T58 0Q43 0 39 2T35 11Q35 13 38 25T43 40Q45 46 65 46Q135 46 154 86Q158 92 223 354T289 629Z"></path></defs></svg>
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/kubernetes/" rel="tag"># kubernetes</a>
+              <a href="/tags/deployment/" rel="tag"># deployment</a>
+              <a href="/tags/controller/" rel="tag"># controller</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/06/14/Kubernetes-%E6%8E%A7%E5%88%B6%E5%99%A8%E6%A8%A1%E5%BC%8F%E5%88%86%E6%9E%90/" rel="prev" title="Kubernetes 控制器模式分析">
+      <i class="fa fa-chevron-left"></i> Kubernetes 控制器模式分析
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#概念"><span class="nav-number">1.</span> <span class="nav-text">概念</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#工作原理"><span class="nav-number">2.</span> <span class="nav-text">工作原理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#源码分析"><span class="nav-number">3.</span> <span class="nav-text">源码分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#同步"><span class="nav-number">3.1.</span> <span class="nav-text">同步</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#扩容"><span class="nav-number">3.2.</span> <span class="nav-text">扩容</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#重新创建"><span class="nav-number">3.3.</span> <span class="nav-text">重新创建</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#滚动更新"><span class="nav-number">3.4.</span> <span class="nav-text">滚动更新</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#回滚"><span class="nav-number">3.5.</span> <span class="nav-text">回滚</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#删除"><span class="nav-number">3.6.</span> <span class="nav-text">删除</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">4.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Reference"><span class="nav-number">5.</span> <span class="nav-text">Reference</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+      
+
+<script>
+  if (typeof MathJax === 'undefined') {
+    window.MathJax = {
+      loader: {
+        source: {
+          '[tex]/amsCd': '[tex]/amscd',
+          '[tex]/AMScd': '[tex]/amscd'
+        }
+      },
+      tex: {
+        inlineMath: {'[+]': [['$', '$']]},
+        tags: 'ams'
+      },
+      options: {
+        renderActions: {
+          findScript: [10, doc => {
+            document.querySelectorAll('script[type^="math/tex"]').forEach(node => {
+              const display = !!node.type.match(/; *mode=display/);
+              const math = new doc.options.MathItem(node.textContent, doc.inputJax[0], display);
+              const text = document.createTextNode('');
+              node.parentNode.replaceChild(text, node);
+              math.start = {node: text, delim: '', n: 0};
+              math.end = {node: text, delim: '', n: 0};
+              doc.math.push(math);
+            });
+          }, '', false],
+          insertedScript: [200, () => {
+            document.querySelectorAll('mjx-container').forEach(node => {
+              let target = node.parentNode;
+              if (target.nodeName.toLowerCase() === 'li') {
+                target.parentNode.classList.add('has-jax');
+              }
+            });
+          }, '', false]
+        }
+      }
+    };
+    (function () {
+      var script = document.createElement('script');
+      script.src = '//cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js';
+      script.defer = true;
+      document.head.appendChild(script);
+    })();
+  } else {
+    MathJax.startup.document.state(0);
+    MathJax.texReset();
+    MathJax.typeset();
+  }
+</script>
+
+    
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/";
+    this.page.identifier = "2020/06/27/Kubernetes-Deployment-的设计与实现/";
+    this.page.title = "Kubernetes Deployment 的设计与实现";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>
