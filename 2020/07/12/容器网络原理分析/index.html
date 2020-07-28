@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"chuanleiguo.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":true},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="容器，是一种沙盒技术。它本质上是宿主机上的一个普通的进程，但是使用了 Namespace 实现了资源隔离，使用 Cgroups 实现了对进程可用资源的限制。这样，进程之间因为有了边界和限制而能够避免相互干扰，并且能利用容器镜像，能够实现容器的“搬运”。在网络上，容器使用 Network Namespace 实现对网络资源的隔离，被隔离的进程只能看到当前 Namespace 里的网络栈和配置。 所谓">
+<meta property="og:type" content="article">
+<meta property="og:title" content="容器网络原理分析">
+<meta property="og:url" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="Chuan&#39;s Cabin">
+<meta property="og:description" content="容器，是一种沙盒技术。它本质上是宿主机上的一个普通的进程，但是使用了 Namespace 实现了资源隔离，使用 Cgroups 实现了对进程可用资源的限制。这样，进程之间因为有了边界和限制而能够避免相互干扰，并且能利用容器镜像，能够实现容器的“搬运”。在网络上，容器使用 Network Namespace 实现对网络资源的隔离，被隔离的进程只能看到当前 Namespace 里的网络栈和配置。 所谓">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/same-host-diff-con.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/diff-host-diff-con-bridge.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/flannel-udp.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/tun.png">
+<meta property="og:image" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/flannel-vxlan.png">
+<meta property="article:published_time" content="2020-07-12T03:13:34.000Z">
+<meta property="article:modified_time" content="2020-07-28T00:11:20.513Z">
+<meta property="article:author" content="Chuanlei Guo">
+<meta property="article:tag" content="kubernetes">
+<meta property="article:tag" content="container">
+<meta property="article:tag" content="docker">
+<meta property="article:tag" content="network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/same-host-diff-con.png">
+
+<link rel="canonical" href="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>容器网络原理分析 | Chuan's Cabin</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"] > svg a {
+  fill: blue;
+  stroke: blue;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container {
+  overflow: auto hidden;
+}
+
+mjx-container + br {
+  display: none;
+}
+</style></head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chuan's Cabin</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">Code & Live with Love</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-programming-language">
+
+    <a href="/categories/programming-language" rel="section"><i class="fa fa-rocket fa-fw"></i>编程语言</a>
+
+  </li>
+        <li class="menu-item menu-item-sourcecode">
+
+    <a href="/categories/sourcecode" rel="section"><i class="fa fa-code fa-fw"></i>源码分析</a>
+
+  </li>
+        <li class="menu-item menu-item-computer-science">
+
+    <a href="/categories/computer-science" rel="section"><i class="fa fa-cogs fa-fw"></i>计算机科学</a>
+
+  </li>
+        <li class="menu-item menu-item-mooc">
+
+    <a href="/categories/mooc" rel="section"><i class="fa fa-graduation-cap fa-fw"></i>MOOC</a>
+
+  </li>
+        <li class="menu-item menu-item-booknotes">
+
+    <a href="/categories/booknotes" rel="section"><i class="fa fa-book fa-fw"></i>读书笔记</a>
+
+  </li>
+        <li class="menu-item menu-item-diary">
+
+    <a href="/categories/diary" rel="section"><i class="fa fa-keyboard fa-fw"></i>日志</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          容器网络原理分析
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-07-12 11:13:34" itemprop="dateCreated datePublished" datetime="2020-07-12T11:13:34+08:00">2020-07-12</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/07/12/容器网络原理分析/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>容器，是一种沙盒技术。它本质上是宿主机上的一个普通的进程，但是使用了 <code>Namespace</code> 实现了资源隔离，使用 <code>Cgroups</code> 实现了对进程可用资源的限制。这样，进程之间因为有了边界和限制而能够避免相互干扰，并且能利用容器镜像，能够实现容器的“搬运”。在网络上，容器使用 <code>Network Namespace</code> 实现对网络资源的隔离，被隔离的进程只能看到当前 Namespace 里的网络栈和配置。</p>
+<p>所谓“网络栈”，包括了：网卡（Network Interface）、回环设备（Loopback Device）、路由表（Routing Table）和 iptables 规则。对于进程来说，这些组件构成了它发出和响应网络请求的基础环境。虽然可以容器可以在启动的时候通过传入 <code>-net=host</code> 方式直接使用宿主机的网络栈，即不开启 Network Namespace，这样虽然可以提供良好的性能，但是却要需要提前规划好每个容器监听的端口号，否则存在端口冲突的风险。所以，大多数时候，我们希望容器尽可能使用自己的 Network Namespace 中的网络栈，拥有自己的 IP 地址和端口号。</p>
+<p>这样做自然就使我们面临一个问题：被隔离的进程，如何与另外一个 Network Namespace 中的进程通信呢？</p>
+<h2 id="同主机容器间通信"><a href="#同主机容器间通信" class="headerlink" title="同主机容器间通信"></a>同主机容器间通信</h2><p>为了理解不同容器的通信问题，我们可以想象，对于多台宿主机，使它们通信的最直接的方法就是使用网线或交换机将它们连接。在 Linux 中，网桥（Bridge）能够实现虚拟交换机的作用。网桥工作在数据链路层（Data Link），可以根据 MAC 地址学习并将数据包发送到网桥不同的端口上。在 Docker 项目中，会默认在宿主机上创建一个名为 docker0 的网桥，同宿主机上的容器可以通过连接到网桥而实现通信。</p>
+<p>而将容器连接到网桥的方式，是使用一种名叫 <strong>Veth Pair</strong> 的虚拟设备。Veth Pair 的特点是，它被创建出来后，总是以两张虚拟网卡（Veth Peer）的形式成对出现。并且，从其中一张“网卡”发出的数据包会直接出现在与之对应的另一张“网卡”上，即使它们在不同的 Network Namespace 中。因为有这样的特点，Veth Pair 通常被当做虚拟的“网线”，用于连接不同的 Network Namespace。</p>
+<p>这样，同一个宿主机上的不同容器通过 docker0 网桥通信的流程就可以用下图表示：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/same-host-diff-con.png" class="">
+
+<p>我们进入 <code>Container1</code> 容器：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it Container sh</span><br></pre></td></tr></table></figure>
+
+<p>查看它的网络设备：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在容器中</span></span><br><span class="line">root:/ ifconfig</span><br><span class="line">eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500</span><br><span class="line">        inet 172.17.0.2  netmask 255.255.0.0  broadcast 0.0.0.0</span><br><span class="line">        inet6 fe80::42:acff:fe11:2  prefixlen 64  scopeid 0x20&lt;link&gt;</span><br><span class="line">        ether 02:42:ac:11:00:02  txqueuelen 0  (Ethernet)</span><br><span class="line">        RX packets 364  bytes 8137175 (7.7 MiB)</span><br><span class="line">        RX errors 0  dropped 0  overruns 0  frame 0</span><br><span class="line">        TX packets 281  bytes 21161 (20.6 KiB)</span><br><span class="line">        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0</span><br><span class="line">        </span><br><span class="line">lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536</span><br><span class="line">        inet 127.0.0.1  netmask 255.0.0.0</span><br><span class="line">        inet6 ::1  prefixlen 128  scopeid 0x10&lt;host&gt;</span><br><span class="line">        loop  txqueuelen 1000  (Local Loopback)</span><br><span class="line">        RX packets 0  bytes 0 (0.0 B)</span><br><span class="line">        RX errors 0  dropped 0  overruns 0  frame 0</span><br><span class="line">        TX packets 0  bytes 0 (0.0 B)</span><br><span class="line">        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0</span><br><span class="line">        </span><br><span class="line">$ route</span><br><span class="line">Kernel IP routing table</span><br><span class="line">Destination     Gateway         Genmask         Flags Metric Ref    Use Iface</span><br><span class="line">default         172.17.0.1      0.0.0.0         UG    0      0        0 eth0</span><br><span class="line">172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 eth0</span><br></pre></td></tr></table></figure>
+
+<p>可以看到，这个容器里有一张 <code>eth0</code> 网卡，它正是一个 Veth Pair 设备在容器里这一段。通过 <code>route</code> 命令查看 Container1 容器的路由表，可以看到这个 eth0 网卡是这个容器的默认路由设备：所有对 172.17.0.0/16 网段的请求，都会交给 eth0 来处理。而这个 Veth Pair 的另一端则在宿主机上，可以通过查看宿主机的网络设备看到：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment"># 在宿主机上</span></span><br><span class="line">$ ifconfig</span><br><span class="line">docker0   Link encap:Ethernet  HWaddr 02:42:d8:e4:df:c1  </span><br><span class="line">          inet addr:172.17.0.1  Bcast:0.0.0.0  Mask:255.255.0.0</span><br><span class="line">          inet6 addr: fe80::42:d8ff:fee4:dfc1/64 Scope:Link</span><br><span class="line">          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</span><br><span class="line">          RX packets:309 errors:0 dropped:0 overruns:0 frame:0</span><br><span class="line">          TX packets:372 errors:0 dropped:0 overruns:0 carrier:0</span><br><span class="line">          collisions:0 txqueuelen:0 </span><br><span class="line">          RX bytes:18944 (18.9 KB)  TX bytes:8137789 (8.1 MB)</span><br><span class="line">veth9c02e56 Link encap:Ethernet  HWaddr 52:81:0b:24:3d:da  </span><br><span class="line">          inet6 addr: fe80::5081:bff:fe24:3dda/64 Scope:Link</span><br><span class="line">          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</span><br><span class="line">          RX packets:288 errors:0 dropped:0 overruns:0 frame:0</span><br><span class="line">          TX packets:371 errors:0 dropped:0 overruns:0 carrier:0</span><br><span class="line">          collisions:0 txqueuelen:0 </span><br><span class="line">          RX bytes:21608 (21.6 KB)  TX bytes:8137719 (8.1 MB)</span><br><span class="line">          </span><br><span class="line">$ brctl show</span><br><span class="line">bridge name bridge id  STP enabled interfaces</span><br><span class="line">docker0  8000.0242d8e4dfc1 no  veth9c02e56</span><br></pre></td></tr></table></figure>
+
+<p>可以看到 Container1 对应的 Veth Pair 设备，在宿主机上是一张虚拟网卡，它的名字是 <code>veth9c02e56</code>。而且通过 <code>brctl</code> 的输出，可以看到该网卡被插在 docker0 上。同样的， Container2 容器对应的 Veth Pair 的另一端也以相同的方式插在 docker0 网桥上。这是如果在 Container1 容器里 ping 一下 Container2 的 IP（172.17.0.3），就可以发现同一宿主机上的两个容器默认相互连通。</p>
+<p>这样同宿主机上两个容器的通信过程为：当在 Container1 中访问 Container2 的 IP 地址是，172.17.0.3 这个目的地址会匹配到 Container1 容器中的第二条路由规则，该规则的网管是 0.0.0.0，意味着是一条直连规则，即：凡是匹配到这条规则的 IP 包，都应该经过 eth0 网卡，通过二层网络直接发往目的主机。</p>
+<p>而要通过二层网络抵达 Container2 容器，就需要 172.17.0.3 这个 IP 对应的 MAC 地址。那么，Container1 的网络协议栈，就需要通过 eth0 网卡发送一个 ARP（Address Resolution Protocol） 广播，通过 IP 地址查到对应的 MAC 地址。这个 eth0 网卡是一个 Veth Pair，它的一端在该容器的 Network Namespace 里，而另一端位于宿主机上，并被插在宿主机的 docker0 网桥上，成功为了网桥的“从设备”。这时，网卡降级为网桥的一个端口，它唯一的作用就是接受流入的数据包，交给网桥。</p>
+<p>在收到 ARP 请求后，docker0 就扮演二层交换机的角色，把 ARP 广播到其他被插在 docker0 上的虚拟网卡上。这样同样连接在 docker0 上的 Container2 容器的网络协议栈就会收到这个 ARP 请求，并返回对应的 MAC 地址给 Container1。有了这个目的 MAC 地址，Container1 容器的 eth0 网卡就可以将数据包发出去。该数据包会立刻直接流入 docker0 网桥，网桥继续扮演二层交换机的角色，根据数据包的目的 MAC 地址，在它的 CAM 表中查到对应的端口，并发送数据包。这样，数据包就通过 Container2 的 Veth Pair 进入了新的容器。所以 Container2 容器看到的情况是自己的 eth0 网卡出现了流入的数据包，这样 Container2 就会对请求进行处理，并返回响应。</p>
+<p>所以，被限制在 Network Namespace 中的容器进程，实际上是通过 Veth Pair 设备 + 宿主机网桥的方式，实现了与其他容器的数据交换。当用户在宿主机上访问容器的 IP 地址时，请求也是先到达 docker0 网桥，然后被转发到对应的 Veth Pair 设备，最后出现在容器里。</p>
+<p>同样的，当容器驶入连接到另外一个宿主机是，如 <code>ping 10.168.0.3</code>，它的请求先经过 docker0 出现在宿主机上，然后根据宿主机的路由表的直连规则将请求交给宿主机的 eth0 处理。接下来，这个数据包经宿主机的网络到达 10.168.0.3 对应的宿主机上，当然，这要求两台宿主机是连通的。</p>
+<h2 id="跨主机容器间通信"><a href="#跨主机容器间通信" class="headerlink" title="跨主机容器间通信"></a>跨主机容器间通信</h2><p>在了解了同一宿主机下不同容器的通信方式后，我们自然要思考，不同宿主机的容器要如何通信呢？这就是“跨主机通信问题”。</p>
+<p>在 Docker 的默认配置下，一台宿主机的 docker0 网桥和其他宿主机上的 docker0 网桥是没有关联的，它们之间也没有办法连通。所以不同宿主机的容器之间自然也就无法通信了。</p>
+<p>不过，我们能够通过软件方式，创建一个整个集群公用的网桥，然后将集群中所有的容器都连接到这个网桥上。这种在已有的宿主机网络上，通过软件构建一个覆盖的、可以把所有容器连通在一起的虚拟网络，被称为 <code>Overlay Network</code>（覆盖网络）。其结构如下图：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/diff-host-diff-con-bridge.png" class="">
+
+<p>这个 Overlay Network 本身，可以由每台宿主机上的一个特殊网桥共同组成。比如，当 Node1 上的 Container1 要访问 Node2 上 Container2 时，Node1 上的特殊网桥在收到数据包后，可以将数据包发送到正确的宿主机；而 Node2 上的特殊网桥在收到数据包后，也能通过某种方式将数据包转发给正确的容器。甚至，每台宿主机上，都不需要有这样一个特殊的网桥，而仅仅通过某种方式，将数据包转发给正确的容器。甚至，不需要特殊网桥，仅仅通过配置路由表就能转发到正确的宿主机上。</p>
+<p>目前，社区中存在多种为解决“跨主机通信”问题而出现的容器网络方案。为了理解其原理，我们从 Flannel 这个项目说起。Flannel 项目是 CoreOS 主推的容器网络方案。该项目本身只是一个框架，真正为我们提供容器网络功能的，是 Flannel 的后端实现。Flannel 支持三种后端实现，分别是：</p>
+<ol>
+<li>UDP</li>
+<li>VXLAN</li>
+<li>host-gw</li>
+</ol>
+<h3 id="Flannel-的-UDP-实现"><a href="#Flannel-的-UDP-实现" class="headerlink" title="Flannel 的 UDP 实现"></a>Flannel 的 UDP 实现</h3><p>假设现在有两台宿主机：</p>
+<ul>
+<li>宿主机 Node1 上有一个容器 Container1，它的 IP 地址是 100.96.1.2，网桥地址是 100.96.1.1/24；</li>
+<li>宿主机 Node2 上有一个容器 Container2，它的 IP 地址是 100.96.2.3，网桥地址是 100.96.2.1/24;</li>
+</ul>
+<p>现在我们希望 Container1 能够访问 Container2。</p>
+<p>这时，Container1 容器里的进程发起的 IP 包，其源地址是 100.96.1.2，目的地址是 100.96.2.3。由于目的地址 100.96.2.3 并不在 Node1 的 docker0 网桥的网段，所以这个 IP 包会被交给默认路由规则，通过容器的网关进入 docker0 网桥从而出现宿主机上。这时候，这个 IP 包的下一个目的地，就取决于宿主机上的路由规则。此时，Flannel 已提前在宿主机创建了一系列的路由规则，在 Node1 上，规则如下所示：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在 Node1 上</span></span><br><span class="line">$ ip route</span><br><span class="line">default via 10.168.0.1 dev eth0</span><br><span class="line">100.96.0.0/16 dev flannel0  proto kernel  scope link  src 100.96.1.0</span><br><span class="line">100.96.1.0/24 dev docker0  proto kernel  scope link  src 100.96.1.1</span><br><span class="line">10.168.0.0/24 dev eth0  proto kernel  scope link  src 10.168.0.2</span><br></pre></td></tr></table></figure>
+
+<p>由于 IP 包的目的地址是 100.96.2.3，它匹配不到本机 docker0 网桥对应的 100.96.1.0/24，只能匹配到第二条 100.96.0.0/16 对应的这条路由规则，从而进入到一个叫做 flannel0 的设备中。而这个 flannel0 是一个 TUN 设备（Tunnel 设备）。TUN 设备是一种工作在三层（Network Layer）的虚拟设备。它的功能就是在操作系统内核和用户程序之间传递 IP 包。</p>
+<p>对于 flannel0，当操作系统将一个 IP 包发送给 flannel0 设备之后，flannel0 就会把这个 IP 包交给创建这个设备的应用程序，即 Flannel 进程。这个过程中， IP 包从内核态流向了用户态。反之，如果 Flannel 进程想 flannel0 设备发送一个 IP 包，那么这个 IP 包就会出现在宿主机网络栈中，然后根据路由表进行下一步处理。这时， IP 包由用户态流向内核态。</p>
+<p>这样，当 IP 包从容器经过 docker0 出现在宿主机，然后又根据路由表进入 flannel0 设备后，宿主机上的 flanneld 进程，就会收到这个 IP 包。根据这个 IP 包的目的地址，将它发送给 Node2 宿主机。那么，flanneld 是如何知道该 IP 地址对应的容器在 Node2 上面呢？</p>
+<p>Flannel 项目中子网（Subnet）的概念非常重要。由 Flannel 管理的容器网络中，一台宿主机上面的所有容器，都属于该宿主机被分配的一个 “子网”。在上面的例子汇总， Node1 的子网是 100.96.1.0/24，Container1 的 IP 地址是 100.96.1.2。Node2 的子网是 100.96.2.0/24，Container2 的 IP 地址是 100.96.2.3。而这些子网与宿主机的对应关系都保存在 Etcd 中：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ etcdctl ls /coreos.com/network/subnets</span><br><span class="line">/coreos.com/network/subnets/100.96.1.0-24</span><br><span class="line">/coreos.com/network/subnets/100.96.2.0-24</span><br><span class="line">/coreos.com/network/subnets/100.96.3.0-24</span><br></pre></td></tr></table></figure>
+
+<p>当 flanneld 进程在处理由 flannel0 传入的 IP 包时，就可以根据目的 IP 的地址，匹配到对应的子网，从 Etcd 中找到这个子网对应的宿主机的 IP 地址是 10.169.0.3：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ etcdctl get /coreos.com/network/subnets/100.96.2.0-24</span><br><span class="line">&#123;<span class="string">"PublicIP"</span>:<span class="string">"10.168.0.3"</span>&#125;</span><br></pre></td></tr></table></figure>
+
+<p>而对于 flanneld 来说，只要 Node1 和 Node2 是互通的，那么 flanneld 作为 Node1 上的一个普通进程，就一定可以通过上述 IP 地址访问到 Node2。所以，flanneld 在收到 Container1 发送给 Container2 的 IP 包后，就会把这个 IP 包直接封装在一个 UDP 包中，然后发送给 Node2。UDP 包的源地址是 Node1 的地址，目的地址是 Node2 的地址。这样通过一个 UDP 通信，一个 UDP 包就由 Node1 到达了 Node2。Node2 上的 flanneld 就会从 UDP 包中解析出封装在里面的 Container1 发出的原 IP 包。接下来，就如同虚机上的容器网络，IP 包经 docker0 网桥通过 Veth Pair 设备进入到 Container2 的 Network Namespace 中。需要主机的是，上述流程还有一个重要的前提就是 docker0 网桥的地址范围必须是 Flannel 为宿主机分配的子网。以上就是 Flannel UDP 模式的跨主机通信的原理，可以用下图来表示：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/flannel-udp.png" class="">
+
+<p>可以看到，Flannel UDP 模式提供的其实是一个三层的 Overlay 网络，即：它首先对发出端的 IP 包进行 UDP 封装，然后在接收端进行解封装拿到原始的 IP 包，进而把这个 IP 包转发给目标容器。这就像 Flannel 在不同宿主机上的两个容器之间打通了一条“隧道”，使得两个容器可以直接使用 IP 地址进行通信，而无需关心容器和宿主机的分布情况。</p>
+<p>目前，Flannel UDP 方式已经被废弃了，因为它存在严重的性能问题。相比于两台宿主机之间的直接通信，基于 Flannel UDP 模式的容器通信多了一个额外的步骤，即 flanneld 的处理过程。而这个过程，由于使用了 flannel0 这个 TUN 设备，仅在发出 IP 包的过程中就需要经过三次用户态与内核态之间的数据拷贝：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/tun.png" class="">
+
+<ol>
+<li>用户态的容器进程发出的 IP 包经过 docker0 网桥进入内核态；</li>
+<li>IP 包根据路由表进入 TUN（flannel0）设备，从而回到用户态的 flanneld 进程；</li>
+<li>flanneld 进行 UDP 封包之后重新进入内核态，将 UDP 包通过宿主机的 eth0 发出去；</li>
+</ol>
+<p>另外 Flannel 进行 UDP 封装和解封装的过程也都是在用户态完成的。在 Linux 操作系统中，上述这些上下文切换和用户态操作的代价其实都是比较高的，这也是 Flannel UDP 性能不好的原因。所以，在进行系统级编程的时候，一个非常重要的优化原则，就是要减少用户态到内核态的切换次数，并且把核心的处理逻辑都放在内核态进行。正因为此，Flannel 支持的 <strong>VXLAN</strong> 模式逐渐成为了主流的容器网络方案。</p>
+<h3 id="Flannel-的-VXLAN-实现"><a href="#Flannel-的-VXLAN-实现" class="headerlink" title="Flannel 的 VXLAN 实现"></a>Flannel 的 VXLAN 实现</h3><p>VXLAN，即 Virtual Extensible LAN（虚拟可拓展局域网），是 Linux 内核本身就支持的网络虚拟化技术。所以 VXLAN 可以完全在内核态实现上述封装和解封装的工作，从而通过与前面相似的“隧道”机制，构建出 Overlay 网络。</p>
+<p>VXLAN 的覆盖网络的设计思想是：在现有的三层网络上，“覆盖”一层虚拟的、由内核 VXLAN 模块维护的二层网络，使得连接在这个 VXLAN 二层网络上的主机之前可以像在一个局域网中那样自由通信。当然，实际上这些“主机”可能分布在不同的宿主机上，甚至是分布在不同的物理机房中。</p>
+<p>为了在二层网络上打通“隧道”，VXLAN 在宿主机上设置一个特殊的网络设备作为隧道的两端，该设备叫做 VTEP，即 VXLAN Tunnel End Point。VTEP 设备的作用其实跟前面 flanneld 进程非常相似。只不过，它进行封装和解封装的对象，是二层数据帧（Ethernet frame）；而且这个工作的执行流程，全部是在内核中完成的。所以，基于 VTEP 设备进行隧道通信的流程，可以用下图标识：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/flannel-vxlan.png" class="">
+
+<p>可以看到，每台宿主机上名为 flannel.1 的设备，就是 VXLAN 所需的 VTEP 设备，它既有 IP 地址，也有 MAC 地址。与 UDP 模式的流程类似，当 Container1 发出请求之后，这个目的地址是 10.1.16.3 的 IP 包，会先出现在 docker0 网桥，然后被路由到本机的 flannel.1 设备进行处理。也就是说，来到了“隧道”的入口。为了能将“原始 IP 包”封装并且发送到正确的宿主机，VXLAN 就需要找到这条“隧道”的出口，即：目的宿主机的 VTEP 设备。而这个设备的信息，正是每台宿主机上的 flanneld 进程维护的。VTEP 设备之间需要想办法组成一个虚拟的二层网络，即：通过二层数据帧进行通信。所以“源 VTEP 设备”收到“原始 IP 包”后，就要想办法把“原始 IP 包”加上一个目的 MAC 地址，封装成一个二层数据帧，然后发送给“目的 VTEP 设备”。“目的 VTEP 设备”的 MAC 地址由 ARP 表记录，而这里的 ARP 记录不是通过发送 ARP 请求获取，而是有 flanneld 在 Node2 节点启动时，自动添加在 Node1 上的。有了这个“目的 VTEP 设备”的 MAC 地址，Linux 内核就可以开始二层封包工作了。</p>
+<p>Linux 内核会把“目的 VTEP 设备”的 MAC 地址，填写在图中额 Inner Ethernet Header 字段，二道一个二层数据帧。这些 VTEP 设备的 MAC 地址，对于宿主机来说并没有什么实际意义。所以上面封装的这个数据帧，并不能在宿主机的二层网络中传输，所以，我们将它称为“内部数据帧”。所以接下来，Linux 还需要把“内部数据帧”进一步封装称为宿主机网络里的一个普通的数据帧，好让它承载“内部数据帧”通过宿主机的 eth0 网卡进行传输。我们把这次要封装出来的、宿主机对应的数据帧称为“外部数据帧”。</p>
+<p>Linux 内核还会在内部数据帧前面，添加一个特殊的 VXLAN 头，用来表示一个 VXLAN 要使用的数据帧。VXLAN 头里面有个重要的标志叫做 <strong>VNI</strong>，它是 VTEP 设备识别某个数据帧是不是应该归属于自己处理的标志。Flannel 中，VNI 默认都是 1。然后，Linux 内核会把这个数据帧封装进一个 UDP 包里发出去。所以，在宿主机看来，它只是向另外一台宿主机的 flannel.1 设备，发起了一次普通的 UDP 链接。</p>
+<p>不过，一个 flannel.1 设备只知道另一端的 flannel.1 设备的 MAC 地址，却不知道对应的宿主机地址。这种场景下，flannel.1 设备其实要扮演一个“网桥”的角色，在二层网络进行 UDP 包的转发。而 Linux 内核中，“网桥”设备进行转发的一句，来自 FDB 转发数据库，其中的信息也有由 flanneld 进程负责维护。</p>
+<p>所以接下来就是一个正常的宿主机网络的封包工作。Linux 在它前面加上一个 IP 头，组成一个 IP 包。在 IP 头里，会填上查询得到的目的主机的 IP 地址。然后，Linux 内核再在这个 IP 包前面再加上二层数据帧头，并填入 Node2 的 MAC 地址。这个 MAC 地址本身是 Node1 的 ARP 表要学习的内容，无需 flannel 维护。接下来，Node 1 上的 flannel.1 设备就可以把这个数据帧从 eth0 网卡发出去。</p>
+<p>以上就是 Flannel VXLAN 的工作原理了。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/kubernetes/" rel="tag"># kubernetes</a>
+              <a href="/tags/container/" rel="tag"># container</a>
+              <a href="/tags/docker/" rel="tag"># docker</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/" rel="prev" title="Kubernetes Deployment 的设计与实现">
+      <i class="fa fa-chevron-left"></i> Kubernetes Deployment 的设计与实现
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#同主机容器间通信"><span class="nav-number">1.</span> <span class="nav-text">同主机容器间通信</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#跨主机容器间通信"><span class="nav-number">2.</span> <span class="nav-text">跨主机容器间通信</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Flannel-的-UDP-实现"><span class="nav-number">2.1.</span> <span class="nav-text">Flannel 的 UDP 实现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Flannel-的-VXLAN-实现"><span class="nav-number">2.2.</span> <span class="nav-text">Flannel 的 VXLAN 实现</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chuanlei Guo</p>
+  <div class="site-description" itemprop="description">正因为未知，人与人之间的羁绊才愈发迷人</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">25</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">26</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ChuanleiGuo" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ChuanleiGuo" rel="noopener" target="_blank"><i class="github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:chuanleiguo@gmail.com" title="E-Mail → mailto:chuanleiguo@gmail.com" rel="noopener" target="_blank"><i class="envelope fa-fw"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="http://weibo.com/bestchuan" title="Weibo → http:&#x2F;&#x2F;weibo.com&#x2F;bestchuan" rel="noopener" target="_blank"><i class="weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2016 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chuanlei Guo</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://chuanleiguo-com.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  var disqus_config = function() {
+    this.page.url = "http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/";
+    this.page.identifier = "2020/07/12/容器网络原理分析/";
+    this.page.title = "容器网络原理分析";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://chuanleiguo-com.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

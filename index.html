@@ -295,6 +295,170 @@ mjx-container + br {
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chuanlei Guo">
+      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chuan's Cabin">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          
+            <a href="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">容器网络原理分析</a>
+        </h2>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-07-12 11:13:34" itemprop="dateCreated datePublished" datetime="2020-07-12T11:13:34+08:00">2020-07-12</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/computer-science/" itemprop="url" rel="index"><span itemprop="name">计算机科学</span></a>
+                </span>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/#disqus_thread" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2020/07/12/容器网络原理分析/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+          <p>容器，是一种沙盒技术。它本质上是宿主机上的一个普通的进程，但是使用了 <code>Namespace</code> 实现了资源隔离，使用 <code>Cgroups</code> 实现了对进程可用资源的限制。这样，进程之间因为有了边界和限制而能够避免相互干扰，并且能利用容器镜像，能够实现容器的“搬运”。在网络上，容器使用 <code>Network Namespace</code> 实现对网络资源的隔离，被隔离的进程只能看到当前 Namespace 里的网络栈和配置。</p>
+<p>所谓“网络栈”，包括了：网卡（Network Interface）、回环设备（Loopback Device）、路由表（Routing Table）和 iptables 规则。对于进程来说，这些组件构成了它发出和响应网络请求的基础环境。虽然可以容器可以在启动的时候通过传入 <code>-net=host</code> 方式直接使用宿主机的网络栈，即不开启 Network Namespace，这样虽然可以提供良好的性能，但是却要需要提前规划好每个容器监听的端口号，否则存在端口冲突的风险。所以，大多数时候，我们希望容器尽可能使用自己的 Network Namespace 中的网络栈，拥有自己的 IP 地址和端口号。</p>
+<p>这样做自然就使我们面临一个问题：被隔离的进程，如何与另外一个 Network Namespace 中的进程通信呢？</p>
+<h2 id="同主机容器间通信"><a href="#同主机容器间通信" class="headerlink" title="同主机容器间通信"></a>同主机容器间通信</h2><p>为了理解不同容器的通信问题，我们可以想象，对于多台宿主机，使它们通信的最直接的方法就是使用网线或交换机将它们连接。在 Linux 中，网桥（Bridge）能够实现虚拟交换机的作用。网桥工作在数据链路层（Data Link），可以根据 MAC 地址学习并将数据包发送到网桥不同的端口上。在 Docker 项目中，会默认在宿主机上创建一个名为 docker0 的网桥，同宿主机上的容器可以通过连接到网桥而实现通信。</p>
+<p>而将容器连接到网桥的方式，是使用一种名叫 <strong>Veth Pair</strong> 的虚拟设备。Veth Pair 的特点是，它被创建出来后，总是以两张虚拟网卡（Veth Peer）的形式成对出现。并且，从其中一张“网卡”发出的数据包会直接出现在与之对应的另一张“网卡”上，即使它们在不同的 Network Namespace 中。因为有这样的特点，Veth Pair 通常被当做虚拟的“网线”，用于连接不同的 Network Namespace。</p>
+<p>这样，同一个宿主机上的不同容器通过 docker0 网桥通信的流程就可以用下图表示：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/same-host-diff-con.png" class="">
+
+<p>我们进入 <code>Container1</code> 容器：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it Container sh</span><br></pre></td></tr></table></figure>
+
+<p>查看它的网络设备：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在容器中</span></span><br><span class="line">root:/ ifconfig</span><br><span class="line">eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500</span><br><span class="line">        inet 172.17.0.2  netmask 255.255.0.0  broadcast 0.0.0.0</span><br><span class="line">        inet6 fe80::42:acff:fe11:2  prefixlen 64  scopeid 0x20&lt;link&gt;</span><br><span class="line">        ether 02:42:ac:11:00:02  txqueuelen 0  (Ethernet)</span><br><span class="line">        RX packets 364  bytes 8137175 (7.7 MiB)</span><br><span class="line">        RX errors 0  dropped 0  overruns 0  frame 0</span><br><span class="line">        TX packets 281  bytes 21161 (20.6 KiB)</span><br><span class="line">        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0</span><br><span class="line">        </span><br><span class="line">lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536</span><br><span class="line">        inet 127.0.0.1  netmask 255.0.0.0</span><br><span class="line">        inet6 ::1  prefixlen 128  scopeid 0x10&lt;host&gt;</span><br><span class="line">        loop  txqueuelen 1000  (Local Loopback)</span><br><span class="line">        RX packets 0  bytes 0 (0.0 B)</span><br><span class="line">        RX errors 0  dropped 0  overruns 0  frame 0</span><br><span class="line">        TX packets 0  bytes 0 (0.0 B)</span><br><span class="line">        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0</span><br><span class="line">        </span><br><span class="line">$ route</span><br><span class="line">Kernel IP routing table</span><br><span class="line">Destination     Gateway         Genmask         Flags Metric Ref    Use Iface</span><br><span class="line">default         172.17.0.1      0.0.0.0         UG    0      0        0 eth0</span><br><span class="line">172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 eth0</span><br></pre></td></tr></table></figure>
+
+<p>可以看到，这个容器里有一张 <code>eth0</code> 网卡，它正是一个 Veth Pair 设备在容器里这一段。通过 <code>route</code> 命令查看 Container1 容器的路由表，可以看到这个 eth0 网卡是这个容器的默认路由设备：所有对 172.17.0.0/16 网段的请求，都会交给 eth0 来处理。而这个 Veth Pair 的另一端则在宿主机上，可以通过查看宿主机的网络设备看到：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment"># 在宿主机上</span></span><br><span class="line">$ ifconfig</span><br><span class="line">docker0   Link encap:Ethernet  HWaddr 02:42:d8:e4:df:c1  </span><br><span class="line">          inet addr:172.17.0.1  Bcast:0.0.0.0  Mask:255.255.0.0</span><br><span class="line">          inet6 addr: fe80::42:d8ff:fee4:dfc1/64 Scope:Link</span><br><span class="line">          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</span><br><span class="line">          RX packets:309 errors:0 dropped:0 overruns:0 frame:0</span><br><span class="line">          TX packets:372 errors:0 dropped:0 overruns:0 carrier:0</span><br><span class="line">          collisions:0 txqueuelen:0 </span><br><span class="line">          RX bytes:18944 (18.9 KB)  TX bytes:8137789 (8.1 MB)</span><br><span class="line">veth9c02e56 Link encap:Ethernet  HWaddr 52:81:0b:24:3d:da  </span><br><span class="line">          inet6 addr: fe80::5081:bff:fe24:3dda/64 Scope:Link</span><br><span class="line">          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1</span><br><span class="line">          RX packets:288 errors:0 dropped:0 overruns:0 frame:0</span><br><span class="line">          TX packets:371 errors:0 dropped:0 overruns:0 carrier:0</span><br><span class="line">          collisions:0 txqueuelen:0 </span><br><span class="line">          RX bytes:21608 (21.6 KB)  TX bytes:8137719 (8.1 MB)</span><br><span class="line">          </span><br><span class="line">$ brctl show</span><br><span class="line">bridge name bridge id  STP enabled interfaces</span><br><span class="line">docker0  8000.0242d8e4dfc1 no  veth9c02e56</span><br></pre></td></tr></table></figure>
+
+<p>可以看到 Container1 对应的 Veth Pair 设备，在宿主机上是一张虚拟网卡，它的名字是 <code>veth9c02e56</code>。而且通过 <code>brctl</code> 的输出，可以看到该网卡被插在 docker0 上。同样的， Container2 容器对应的 Veth Pair 的另一端也以相同的方式插在 docker0 网桥上。这是如果在 Container1 容器里 ping 一下 Container2 的 IP（172.17.0.3），就可以发现同一宿主机上的两个容器默认相互连通。</p>
+<p>这样同宿主机上两个容器的通信过程为：当在 Container1 中访问 Container2 的 IP 地址是，172.17.0.3 这个目的地址会匹配到 Container1 容器中的第二条路由规则，该规则的网管是 0.0.0.0，意味着是一条直连规则，即：凡是匹配到这条规则的 IP 包，都应该经过 eth0 网卡，通过二层网络直接发往目的主机。</p>
+<p>而要通过二层网络抵达 Container2 容器，就需要 172.17.0.3 这个 IP 对应的 MAC 地址。那么，Container1 的网络协议栈，就需要通过 eth0 网卡发送一个 ARP（Address Resolution Protocol） 广播，通过 IP 地址查到对应的 MAC 地址。这个 eth0 网卡是一个 Veth Pair，它的一端在该容器的 Network Namespace 里，而另一端位于宿主机上，并被插在宿主机的 docker0 网桥上，成功为了网桥的“从设备”。这时，网卡降级为网桥的一个端口，它唯一的作用就是接受流入的数据包，交给网桥。</p>
+<p>在收到 ARP 请求后，docker0 就扮演二层交换机的角色，把 ARP 广播到其他被插在 docker0 上的虚拟网卡上。这样同样连接在 docker0 上的 Container2 容器的网络协议栈就会收到这个 ARP 请求，并返回对应的 MAC 地址给 Container1。有了这个目的 MAC 地址，Container1 容器的 eth0 网卡就可以将数据包发出去。该数据包会立刻直接流入 docker0 网桥，网桥继续扮演二层交换机的角色，根据数据包的目的 MAC 地址，在它的 CAM 表中查到对应的端口，并发送数据包。这样，数据包就通过 Container2 的 Veth Pair 进入了新的容器。所以 Container2 容器看到的情况是自己的 eth0 网卡出现了流入的数据包，这样 Container2 就会对请求进行处理，并返回响应。</p>
+<p>所以，被限制在 Network Namespace 中的容器进程，实际上是通过 Veth Pair 设备 + 宿主机网桥的方式，实现了与其他容器的数据交换。当用户在宿主机上访问容器的 IP 地址时，请求也是先到达 docker0 网桥，然后被转发到对应的 Veth Pair 设备，最后出现在容器里。</p>
+<p>同样的，当容器驶入连接到另外一个宿主机是，如 <code>ping 10.168.0.3</code>，它的请求先经过 docker0 出现在宿主机上，然后根据宿主机的路由表的直连规则将请求交给宿主机的 eth0 处理。接下来，这个数据包经宿主机的网络到达 10.168.0.3 对应的宿主机上，当然，这要求两台宿主机是连通的。</p>
+<h2 id="跨主机容器间通信"><a href="#跨主机容器间通信" class="headerlink" title="跨主机容器间通信"></a>跨主机容器间通信</h2><p>在了解了同一宿主机下不同容器的通信方式后，我们自然要思考，不同宿主机的容器要如何通信呢？这就是“跨主机通信问题”。</p>
+<p>在 Docker 的默认配置下，一台宿主机的 docker0 网桥和其他宿主机上的 docker0 网桥是没有关联的，它们之间也没有办法连通。所以不同宿主机的容器之间自然也就无法通信了。</p>
+<p>不过，我们能够通过软件方式，创建一个整个集群公用的网桥，然后将集群中所有的容器都连接到这个网桥上。这种在已有的宿主机网络上，通过软件构建一个覆盖的、可以把所有容器连通在一起的虚拟网络，被称为 <code>Overlay Network</code>（覆盖网络）。其结构如下图：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/diff-host-diff-con-bridge.png" class="">
+
+<p>这个 Overlay Network 本身，可以由每台宿主机上的一个特殊网桥共同组成。比如，当 Node1 上的 Container1 要访问 Node2 上 Container2 时，Node1 上的特殊网桥在收到数据包后，可以将数据包发送到正确的宿主机；而 Node2 上的特殊网桥在收到数据包后，也能通过某种方式将数据包转发给正确的容器。甚至，每台宿主机上，都不需要有这样一个特殊的网桥，而仅仅通过某种方式，将数据包转发给正确的容器。甚至，不需要特殊网桥，仅仅通过配置路由表就能转发到正确的宿主机上。</p>
+<p>目前，社区中存在多种为解决“跨主机通信”问题而出现的容器网络方案。为了理解其原理，我们从 Flannel 这个项目说起。Flannel 项目是 CoreOS 主推的容器网络方案。该项目本身只是一个框架，真正为我们提供容器网络功能的，是 Flannel 的后端实现。Flannel 支持三种后端实现，分别是：</p>
+<ol>
+<li>UDP</li>
+<li>VXLAN</li>
+<li>host-gw</li>
+</ol>
+<h3 id="Flannel-的-UDP-实现"><a href="#Flannel-的-UDP-实现" class="headerlink" title="Flannel 的 UDP 实现"></a>Flannel 的 UDP 实现</h3><p>假设现在有两台宿主机：</p>
+<ul>
+<li>宿主机 Node1 上有一个容器 Container1，它的 IP 地址是 100.96.1.2，网桥地址是 100.96.1.1/24；</li>
+<li>宿主机 Node2 上有一个容器 Container2，它的 IP 地址是 100.96.2.3，网桥地址是 100.96.2.1/24;</li>
+</ul>
+<p>现在我们希望 Container1 能够访问 Container2。</p>
+<p>这时，Container1 容器里的进程发起的 IP 包，其源地址是 100.96.1.2，目的地址是 100.96.2.3。由于目的地址 100.96.2.3 并不在 Node1 的 docker0 网桥的网段，所以这个 IP 包会被交给默认路由规则，通过容器的网关进入 docker0 网桥从而出现宿主机上。这时候，这个 IP 包的下一个目的地，就取决于宿主机上的路由规则。此时，Flannel 已提前在宿主机创建了一系列的路由规则，在 Node1 上，规则如下所示：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在 Node1 上</span></span><br><span class="line">$ ip route</span><br><span class="line">default via 10.168.0.1 dev eth0</span><br><span class="line">100.96.0.0/16 dev flannel0  proto kernel  scope link  src 100.96.1.0</span><br><span class="line">100.96.1.0/24 dev docker0  proto kernel  scope link  src 100.96.1.1</span><br><span class="line">10.168.0.0/24 dev eth0  proto kernel  scope link  src 10.168.0.2</span><br></pre></td></tr></table></figure>
+
+<p>由于 IP 包的目的地址是 100.96.2.3，它匹配不到本机 docker0 网桥对应的 100.96.1.0/24，只能匹配到第二条 100.96.0.0/16 对应的这条路由规则，从而进入到一个叫做 flannel0 的设备中。而这个 flannel0 是一个 TUN 设备（Tunnel 设备）。TUN 设备是一种工作在三层（Network Layer）的虚拟设备。它的功能就是在操作系统内核和用户程序之间传递 IP 包。</p>
+<p>对于 flannel0，当操作系统将一个 IP 包发送给 flannel0 设备之后，flannel0 就会把这个 IP 包交给创建这个设备的应用程序，即 Flannel 进程。这个过程中， IP 包从内核态流向了用户态。反之，如果 Flannel 进程想 flannel0 设备发送一个 IP 包，那么这个 IP 包就会出现在宿主机网络栈中，然后根据路由表进行下一步处理。这时， IP 包由用户态流向内核态。</p>
+<p>这样，当 IP 包从容器经过 docker0 出现在宿主机，然后又根据路由表进入 flannel0 设备后，宿主机上的 flanneld 进程，就会收到这个 IP 包。根据这个 IP 包的目的地址，将它发送给 Node2 宿主机。那么，flanneld 是如何知道该 IP 地址对应的容器在 Node2 上面呢？</p>
+<p>Flannel 项目中子网（Subnet）的概念非常重要。由 Flannel 管理的容器网络中，一台宿主机上面的所有容器，都属于该宿主机被分配的一个 “子网”。在上面的例子汇总， Node1 的子网是 100.96.1.0/24，Container1 的 IP 地址是 100.96.1.2。Node2 的子网是 100.96.2.0/24，Container2 的 IP 地址是 100.96.2.3。而这些子网与宿主机的对应关系都保存在 Etcd 中：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ etcdctl ls /coreos.com/network/subnets</span><br><span class="line">/coreos.com/network/subnets/100.96.1.0-24</span><br><span class="line">/coreos.com/network/subnets/100.96.2.0-24</span><br><span class="line">/coreos.com/network/subnets/100.96.3.0-24</span><br></pre></td></tr></table></figure>
+
+<p>当 flanneld 进程在处理由 flannel0 传入的 IP 包时，就可以根据目的 IP 的地址，匹配到对应的子网，从 Etcd 中找到这个子网对应的宿主机的 IP 地址是 10.169.0.3：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ etcdctl get /coreos.com/network/subnets/100.96.2.0-24</span><br><span class="line">&#123;<span class="string">"PublicIP"</span>:<span class="string">"10.168.0.3"</span>&#125;</span><br></pre></td></tr></table></figure>
+
+<p>而对于 flanneld 来说，只要 Node1 和 Node2 是互通的，那么 flanneld 作为 Node1 上的一个普通进程，就一定可以通过上述 IP 地址访问到 Node2。所以，flanneld 在收到 Container1 发送给 Container2 的 IP 包后，就会把这个 IP 包直接封装在一个 UDP 包中，然后发送给 Node2。UDP 包的源地址是 Node1 的地址，目的地址是 Node2 的地址。这样通过一个 UDP 通信，一个 UDP 包就由 Node1 到达了 Node2。Node2 上的 flanneld 就会从 UDP 包中解析出封装在里面的 Container1 发出的原 IP 包。接下来，就如同虚机上的容器网络，IP 包经 docker0 网桥通过 Veth Pair 设备进入到 Container2 的 Network Namespace 中。需要主机的是，上述流程还有一个重要的前提就是 docker0 网桥的地址范围必须是 Flannel 为宿主机分配的子网。以上就是 Flannel UDP 模式的跨主机通信的原理，可以用下图来表示：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/flannel-udp.png" class="">
+
+<p>可以看到，Flannel UDP 模式提供的其实是一个三层的 Overlay 网络，即：它首先对发出端的 IP 包进行 UDP 封装，然后在接收端进行解封装拿到原始的 IP 包，进而把这个 IP 包转发给目标容器。这就像 Flannel 在不同宿主机上的两个容器之间打通了一条“隧道”，使得两个容器可以直接使用 IP 地址进行通信，而无需关心容器和宿主机的分布情况。</p>
+<p>目前，Flannel UDP 方式已经被废弃了，因为它存在严重的性能问题。相比于两台宿主机之间的直接通信，基于 Flannel UDP 模式的容器通信多了一个额外的步骤，即 flanneld 的处理过程。而这个过程，由于使用了 flannel0 这个 TUN 设备，仅在发出 IP 包的过程中就需要经过三次用户态与内核态之间的数据拷贝：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/tun.png" class="">
+
+<ol>
+<li>用户态的容器进程发出的 IP 包经过 docker0 网桥进入内核态；</li>
+<li>IP 包根据路由表进入 TUN（flannel0）设备，从而回到用户态的 flanneld 进程；</li>
+<li>flanneld 进行 UDP 封包之后重新进入内核态，将 UDP 包通过宿主机的 eth0 发出去；</li>
+</ol>
+<p>另外 Flannel 进行 UDP 封装和解封装的过程也都是在用户态完成的。在 Linux 操作系统中，上述这些上下文切换和用户态操作的代价其实都是比较高的，这也是 Flannel UDP 性能不好的原因。所以，在进行系统级编程的时候，一个非常重要的优化原则，就是要减少用户态到内核态的切换次数，并且把核心的处理逻辑都放在内核态进行。正因为此，Flannel 支持的 <strong>VXLAN</strong> 模式逐渐成为了主流的容器网络方案。</p>
+<h3 id="Flannel-的-VXLAN-实现"><a href="#Flannel-的-VXLAN-实现" class="headerlink" title="Flannel 的 VXLAN 实现"></a>Flannel 的 VXLAN 实现</h3><p>VXLAN，即 Virtual Extensible LAN（虚拟可拓展局域网），是 Linux 内核本身就支持的网络虚拟化技术。所以 VXLAN 可以完全在内核态实现上述封装和解封装的工作，从而通过与前面相似的“隧道”机制，构建出 Overlay 网络。</p>
+<p>VXLAN 的覆盖网络的设计思想是：在现有的三层网络上，“覆盖”一层虚拟的、由内核 VXLAN 模块维护的二层网络，使得连接在这个 VXLAN 二层网络上的主机之前可以像在一个局域网中那样自由通信。当然，实际上这些“主机”可能分布在不同的宿主机上，甚至是分布在不同的物理机房中。</p>
+<p>为了在二层网络上打通“隧道”，VXLAN 在宿主机上设置一个特殊的网络设备作为隧道的两端，该设备叫做 VTEP，即 VXLAN Tunnel End Point。VTEP 设备的作用其实跟前面 flanneld 进程非常相似。只不过，它进行封装和解封装的对象，是二层数据帧（Ethernet frame）；而且这个工作的执行流程，全部是在内核中完成的。所以，基于 VTEP 设备进行隧道通信的流程，可以用下图标识：</p>
+<img src="/2020/07/12/%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9C%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90/flannel-vxlan.png" class="">
+
+<p>可以看到，每台宿主机上名为 flannel.1 的设备，就是 VXLAN 所需的 VTEP 设备，它既有 IP 地址，也有 MAC 地址。与 UDP 模式的流程类似，当 Container1 发出请求之后，这个目的地址是 10.1.16.3 的 IP 包，会先出现在 docker0 网桥，然后被路由到本机的 flannel.1 设备进行处理。也就是说，来到了“隧道”的入口。为了能将“原始 IP 包”封装并且发送到正确的宿主机，VXLAN 就需要找到这条“隧道”的出口，即：目的宿主机的 VTEP 设备。而这个设备的信息，正是每台宿主机上的 flanneld 进程维护的。VTEP 设备之间需要想办法组成一个虚拟的二层网络，即：通过二层数据帧进行通信。所以“源 VTEP 设备”收到“原始 IP 包”后，就要想办法把“原始 IP 包”加上一个目的 MAC 地址，封装成一个二层数据帧，然后发送给“目的 VTEP 设备”。“目的 VTEP 设备”的 MAC 地址由 ARP 表记录，而这里的 ARP 记录不是通过发送 ARP 请求获取，而是有 flanneld 在 Node2 节点启动时，自动添加在 Node1 上的。有了这个“目的 VTEP 设备”的 MAC 地址，Linux 内核就可以开始二层封包工作了。</p>
+<p>Linux 内核会把“目的 VTEP 设备”的 MAC 地址，填写在图中额 Inner Ethernet Header 字段，二道一个二层数据帧。这些 VTEP 设备的 MAC 地址，对于宿主机来说并没有什么实际意义。所以上面封装的这个数据帧，并不能在宿主机的二层网络中传输，所以，我们将它称为“内部数据帧”。所以接下来，Linux 还需要把“内部数据帧”进一步封装称为宿主机网络里的一个普通的数据帧，好让它承载“内部数据帧”通过宿主机的 eth0 网卡进行传输。我们把这次要封装出来的、宿主机对应的数据帧称为“外部数据帧”。</p>
+<p>Linux 内核还会在内部数据帧前面，添加一个特殊的 VXLAN 头，用来表示一个 VXLAN 要使用的数据帧。VXLAN 头里面有个重要的标志叫做 <strong>VNI</strong>，它是 VTEP 设备识别某个数据帧是不是应该归属于自己处理的标志。Flannel 中，VNI 默认都是 1。然后，Linux 内核会把这个数据帧封装进一个 UDP 包里发出去。所以，在宿主机看来，它只是向另外一台宿主机的 flannel.1 设备，发起了一次普通的 UDP 链接。</p>
+<p>不过，一个 flannel.1 设备只知道另一端的 flannel.1 设备的 MAC 地址，却不知道对应的宿主机地址。这种场景下，flannel.1 设备其实要扮演一个“网桥”的角色，在二层网络进行 UDP 包的转发。而 Linux 内核中，“网桥”设备进行转发的一句，来自 FDB 转发数据库，其中的信息也有由 flanneld 进程负责维护。</p>
+<p>所以接下来就是一个正常的宿主机网络的封包工作。Linux 在它前面加上一个 IP 头，组成一个 IP 包。在 IP 头里，会填上查询得到的目的主机的 IP 地址。然后，Linux 内核再在这个 IP 包前面再加上二层数据帧头，并填入 Node2 的 MAC 地址。这个 MAC 地址本身是 Node1 的 ARP 表要学习的内容，无需 flannel 维护。接下来，Node 1 上的 flannel.1 设备就可以把这个数据帧从 eth0 网卡发出去。</p>
+<p>以上就是 Flannel VXLAN 的工作原理了。</p>
+
+      
+    </div>
+
+    
+    
+    
+      <footer class="post-footer">
+        <div class="post-eof"></div>
+      </footer>
+  </article>
+  
+  
+  
+
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
     <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2020/06/27/Kubernetes-Deployment-%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -326,7 +490,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -622,7 +786,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -805,7 +969,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1001,7 +1165,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1108,7 +1272,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1210,7 +1374,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1402,7 +1566,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1640,7 +1804,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1831,7 +1995,7 @@ mjx-container + br {
                   <i class="far fa-calendar-check"></i>
                 </span>
                 <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
+                <time title="修改时间：2020-07-28 08:11:20" itemprop="dateModified" datetime="2020-07-28T08:11:20+08:00">2020-07-28</time>
               </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
@@ -1885,341 +2049,6 @@ mjx-container + br {
 <p>在美好的发展前景后，基因技术也带来了争议、风险，伦理的讨论也无休无止。疾病的“预防”被实现后，那么“改善”也会随之而来，人类可以按自己的喜好来修改自己或者后代的特征。因为能负担基因改善的人总是少数，那么这是不是会加剧不平等、固话社会阶层？在极端情况下，人类甚至可以通过编辑基因来产生新的物种。那时候，人类自己会处于什么位置？这些问题人类只能随着技术的进步去一一应对。</p>
 <p>书中对可以基础研究的价值表示了极大的肯定。在基因技术的发展过程中，出现了无数的柳暗花明，如 DNA 双螺旋结构的证明，到后来锌手指蛋白、“神话”蛋白、CRISPR蛋白的发现统统都是在生物领域的冷门基础研究中，“幸运”地被发现的。而这些幸运的发现总是让人感叹大自然的鬼斧神工。生物进化过程中，获得了一整套无比简洁而高效的机制，比如只使用3个碱基对应一个氨基酸，而绝不浪费额外的资源；基于编辑的“三件套”更是全部本来就存在于生物体内，人类所做的并不是重新设计，而是发现和推广。</p>
 <p>作为一个程序员，我相信科技发展是不可逆的，它能够让人类社会想好的方向发展。现在，我们经历的每个瞬间都有可能被载入史册，无论是生物科技，还是人工智能，我们都应该用开放的心态拥抱他们，也用严格的监管管控它们，耐心期待技术的成熟，并为人所用。</p>
-
-      
-    </div>
-
-    
-    
-    
-      <footer class="post-footer">
-        <div class="post-eof"></div>
-      </footer>
-  </article>
-  
-  
-  
-
-      
-  
-  
-  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://chuanleiguo.com/2017/07/11/python-decorator/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="Chuanlei Guo">
-      <meta itemprop="description" content="正因为未知，人与人之间的羁绊才愈发迷人">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Chuan's Cabin">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          
-            <a href="/2017/07/11/python-decorator/" class="post-title-link" itemprop="url">Python 中的装饰器和闭包</a>
-        </h2>
-
-        <div class="post-meta">
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-calendar"></i>
-              </span>
-              <span class="post-meta-item-text">发表于</span>
-
-              <time title="创建时间：2017-07-11 13:59:46" itemprop="dateCreated datePublished" datetime="2017-07-11T13:59:46+08:00">2017-07-11</time>
-            </span>
-              <span class="post-meta-item">
-                <span class="post-meta-item-icon">
-                  <i class="far fa-calendar-check"></i>
-                </span>
-                <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-06-28 17:41:58" itemprop="dateModified" datetime="2020-06-28T17:41:58+08:00">2020-06-28</time>
-              </span>
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-folder"></i>
-              </span>
-              <span class="post-meta-item-text">分类于</span>
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/programming-language/" itemprop="url" rel="index"><span itemprop="name">编程语言</span></a>
-                </span>
-            </span>
-
-          
-  
-  <span class="post-meta-item">
-    
-      <span class="post-meta-item-icon">
-        <i class="far fa-comment"></i>
-      </span>
-      <span class="post-meta-item-text">Disqus：</span>
-    
-    <a title="disqus" href="/2017/07/11/python-decorator/#disqus_thread" itemprop="discussionUrl">
-      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2017/07/11/python-decorator/" itemprop="commentCount"></span>
-    </a>
-  </span>
-  
-  
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-
-      
-          <p>函数装饰器（Function decotator）让我们可以通过在代码中“标记”函数来增强它的行为。这是一种很强大的特性，但是充分理解它需要首先理解闭包（clousure）。</p>
-<p>Python 中的最新的被保留的关键字之一是 <code>nonlocal</code>，在 Python 3.0 中被引入。如果你仅仅使用以类为中心的面向对象编程方法的话，你可能从来都没有使用过这个关键字。然而，如果你想实现你自己的函数装饰器，你必须完全理解闭包，那么这时，<code>nonlocal</code> 关键字就是必须的。</p>
-<p>除了在装饰器中的应用外，闭包还可以再异步编程中实现回调（callback），也可以在函数式编程中发挥作用。</p>
-<p>为了解释装饰器究竟如何工作，我们首先需要解释：</p>
-<ul>
-<li>Python 怎样处理装饰器的语法</li>
-<li>Python 怎么确定某个变量是否为局部变量</li>
-<li>闭包如何工作</li>
-<li><code>nolocal</code> 解决了什么问题</li>
-</ul>
-<p>以这四个问题为基础，我们继续研究其他装饰器主题：</p>
-<ul>
-<li>实现一个运行良好的装饰器</li>
-<li>标准库中有趣的装饰器</li>
-<li>实现一个参数化的装饰器</li>
-</ul>
-<p>我们从一个简单的介绍开始。</p>
-<h2 id="装饰器-101"><a href="#装饰器-101" class="headerlink" title="装饰器 101"></a>装饰器 101</h2><p>装饰器是一个将另外一个函数作为参数的可调用对象（callable），作为参数的函数为称为 decorated function。装饰器可能对函数做一些特殊处理，然后再返回或者用另外一个函数来替换它。</p>
-<p>换句话说，假设有一个叫做<code>decorate</code>的装饰器，下面这段代码：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@decorate</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">target</span><span class="params">()</span>:</span></span><br><span class="line">	print(<span class="string">"running target()"</span>)</span><br></pre></td></tr></table></figure>
-
-<p>和这样写有完全一致的结果：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">target</span><span class="params">()</span>:</span></span><br><span class="line">	print(<span class="string">"running target()"</span>)</span><br><span class="line">	</span><br><span class="line">target = decorate(target)</span><br></pre></td></tr></table></figure>
-
-<p>这两个代码片段的结尾都是一样的，<code>target</code> 并不一定要指向原来的 <code>target</code> 函数，而是指向 <code>decorate(target)</code> 返回的函数。我们可以确认一下：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">deco</span><span class="params">(func)</span>:</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">inner</span><span class="params">()</span>:</span></span><br><span class="line">        print(<span class="string">"running inner()"</span>)</span><br><span class="line">    <span class="keyword">return</span> inner</span><br><span class="line"><span class="meta">@deco</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">target</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running target()"</span>)</span><br><span class="line">    </span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>target()</span><br><span class="line">running inner()</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>target</span><br><span class="line">&lt;function __main__.deco.&lt;locals&gt;.inner&gt;</span><br></pre></td></tr></table></figure>
-
-<p>严格来说，装饰器只是一种语法糖。就像我们看到的，你可以简单地把装饰器当做一个可调用对象，传入一个函数作为参数。</p>
-<p>总结一下：首先，装饰器可以用另外一个函数来代替被装饰的函数；其次，装饰器在模块被加载时理解执行。</p>
-<h2 id="Python-执行装饰器的时机"><a href="#Python-执行装饰器的时机" class="headerlink" title="Python 执行装饰器的时机"></a>Python 执行装饰器的时机</h2><p>装饰器的一个关键特性是他们在被装饰函数（decorated function）被定义后立即执行。这通常发生在<code>导入时间</code>（<code>import time</code>）。考虑下面的例子：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">"""registraion.py"""</span></span><br><span class="line">registry = []</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">register</span><span class="params">(func)</span>:</span></span><br><span class="line">    print(<span class="string">"running register(%s)"</span> % func)</span><br><span class="line">    registry.append(func)</span><br><span class="line">    <span class="keyword">return</span> func</span><br><span class="line"></span><br><span class="line"><span class="meta">@register</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f1</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running f1()"</span>)</span><br><span class="line"></span><br><span class="line"><span class="meta">@register</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f2</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running f2()"</span>)</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f3</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running f3()"</span>)</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">main</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running main()"</span>)</span><br><span class="line">    print(<span class="string">"registry -&gt;"</span>, registry)</span><br><span class="line">    f1()</span><br><span class="line">    f2()</span><br><span class="line">    f3()</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><code>registry</code> 保存了被 <code>@register</code> 装饰的函数的引用</li>
-<li>装饰器 <code>register</code> 接受一个函数作为参数</li>
-<li><code>f1</code> 和 <code>f2</code> 被 <code>@register</code> 装饰，<code>f3</code> 没有被装饰</li>
-<li><code>main</code> 函数打印了 <code>registry</code>，然后调用了 <code>f1</code>, <code>f2</code>, <code>f3</code></li>
-<li><code>main</code> 仅仅在运行该脚本时才会被调用</li>
-</ul>
-<p>运行这个脚本的输出是：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> python3 registration.py</span></span><br><span class="line">running register(&lt;function f1 at 0x10d318d08&gt;)</span><br><span class="line">running register(&lt;function f2 at 0x10d318c80&gt;)</span><br><span class="line">running main()</span><br><span class="line">registry -&gt; [&lt;function f1 at 0x10d318d08&gt;, &lt;function f2 at 0x10d318c80&gt;]</span><br><span class="line">running f1()</span><br><span class="line">running f2()</span><br><span class="line">running f3()</span><br></pre></td></tr></table></figure>
-
-<p>注意到 <code>register</code> 在模块中其他函数运行前执行了两次。当 <code>register</code> 被调用时，它接受了一个被装饰的函数对象作为参数，如：<code>&lt;function f1 at 0x10d318d08&gt;</code>。</p>
-<p>模块被加载后，<code>registry</code> 保存了两个被装饰函数 <code>f1</code>，<code>f2</code>的引用。这些函数，还有 <code>f3</code> 只有在 <code>main</code> 函数显式调用后才执行。如果 registration.py 被导入（而不是执行脚本），那么输出为：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;</span><span class="bash">&gt;&gt; import registration</span></span><br><span class="line">running register(&lt;function f1 at 0x10d318d08&gt;)</span><br><span class="line">running register(&lt;function f2 at 0x10d318c80&gt;)</span><br></pre></td></tr></table></figure>
-
-<p>这时，如果我们查看 <code>registry</code>，可以看到：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;</span><span class="bash">&gt;&gt; registration.registry</span></span><br><span class="line">[&lt;function f1 at 0x10d318d08&gt;, &lt;function f2 at 0x10d318c80&gt;]</span><br></pre></td></tr></table></figure>
-
-<p>上面的例子是为了强调函数装饰器（function decorators）在模块被导入的时候马上执行，但是被装饰的函数（decorated function） 仅仅在他们被显式调用后才执行。这就是 Python 老炮们常说的 <code>导入时间（import time）</code> 和 <code>运行时间（runtime）</code>。</p>
-<p>考虑装饰器在真实代码里的普遍使用方式，上面的例子有两个问题：</p>
-<ol>
-<li>装饰器（decorator）和被装饰函数（decorated function）被定义在了同一个模块中。一个真实的装饰器通常被定义在单独的模块中并修饰其他模块中的函数。</li>
-<li><code>register</code> 装饰器返回了被当做参数传入的同一个函数。在实践中，大多数装饰器都定义一个内部函数并返回它。</li>
-</ol>
-<p>尽管 <code>register</code> 装饰器返回了没有被修改的函数，这样的方法其实是有用武之地的。许多 Python Web Framework 都使用相似的方法来将函数添加到某注册机制中，例如，一个注册机将 URL 映射到生成 HTTP 响应的函数。这样的注册过程可能不会修改被装饰函数。</p>
-<h2 id="使用装饰器重构策略模式"><a href="#使用装饰器重构策略模式" class="headerlink" title="使用装饰器重构策略模式"></a>使用装饰器重构策略模式</h2><p>首先看一段使用函数是“first-class object”这一特点实现策略模式的代码：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> collections <span class="keyword">import</span> namedtuple</span><br><span class="line"></span><br><span class="line">Customer = namedtuple(<span class="string">"Customer"</span>, <span class="string">"name fidelity"</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">LineItem</span>:</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span><span class="params">(self, product, quantity, price)</span>:</span></span><br><span class="line">        self.product = product</span><br><span class="line">        self.quantity = quantity</span><br><span class="line">        self.price = price</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">total</span><span class="params">(self)</span>:</span></span><br><span class="line">        <span class="keyword">return</span> self.price * self.quantity</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Order</span>:</span> </span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span><span class="params">(self, customer, cart, promotion=None)</span>:</span></span><br><span class="line">        self.customer = customer</span><br><span class="line">        self.cart = list(cart)</span><br><span class="line">        self.promotion = promotion</span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">total</span><span class="params">(self)</span>:</span></span><br><span class="line">        <span class="keyword">if</span> <span class="keyword">not</span> hasattr(self, <span class="string">"__total"</span>):</span><br><span class="line">            self.__total = sum(item.total() <span class="keyword">for</span> item <span class="keyword">in</span> self.cart)</span><br><span class="line">        <span class="keyword">return</span> self.__total</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">due</span><span class="params">(self)</span>:</span></span><br><span class="line">        <span class="keyword">if</span> self.promotion <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">            discount = <span class="number">0</span></span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            discount = self.promotion(self)</span><br><span class="line">        <span class="keyword">return</span> self.total() - discount</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__repr__</span><span class="params">(self)</span>:</span></span><br><span class="line">        fmt = <span class="string">"&lt;Order total: &#123;:2f&#125;&gt; due: &#123;:.2f&#125;"</span></span><br><span class="line">        <span class="keyword">return</span> fmt.format(self.total(), self.due())</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">fidelity_promo</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""5% discount for customers with 1000 or more fidelity points"""</span></span><br><span class="line">    <span class="keyword">return</span> order.total() * <span class="number">.05</span> <span class="keyword">if</span> order.customer.fidelity &gt;= <span class="number">1000</span> <span class="keyword">else</span> <span class="number">0</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">bulk_item_promo</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""10% discount for each LineItem with 20 or more units"""</span></span><br><span class="line">    discount = <span class="number">0</span></span><br><span class="line">    <span class="keyword">for</span> item <span class="keyword">in</span> order.cart:</span><br><span class="line">        <span class="keyword">if</span> item.quantity &gt;= <span class="number">20</span>:</span><br><span class="line">            discount += item.total() * <span class="number">.1</span></span><br><span class="line">    <span class="keyword">return</span> discount</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">large_order_promo</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""7% discount for orders with 10 or more distince items"""</span></span><br><span class="line">    distinct_items = &#123; item.product <span class="keyword">for</span> item <span class="keyword">in</span> order.cart &#125;</span><br><span class="line">    <span class="keyword">if</span> len(distinct_items) &gt;= <span class="number">10</span>:</span><br><span class="line">        <span class="keyword">return</span> order.total() * <span class="number">.07</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">promos = [fidelity_promo, bulk_item_promo, large_order_promo]</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">best_promo</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="keyword">return</span> max(promo(order) <span class="keyword">for</span> promo <span class="keyword">in</span> promos)</span><br></pre></td></tr></table></figure>
-
-<p>上面这段代码的只要问题在于函数名的重复，每个计算优惠的策略都以<code>_promo</code>结尾。<code>best_promo</code>函数使用<code>promos</code>列表来决定最大的优惠力度。这种命名上的重复的问题在于，当新添加了计算优惠的函数时，我们很可能会忘记将它添加到<code>promos</code>中。这种情况下，<code>best_promo</code>会忽略新的优惠计算函数而产生 bug。下面的代码中，我们使用装饰器重构代码来解决这个问题：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">promos = []</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">promotion</span><span class="params">(promo_func)</span>:</span></span><br><span class="line">    promos.append(promo_func)</span><br><span class="line">    <span class="keyword">return</span> promo_func</span><br><span class="line"></span><br><span class="line"><span class="meta">@promotion</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">fidelity</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""5% discount for customers with 1000 or more fidelity points"""</span></span><br><span class="line">    <span class="keyword">return</span> order.total() * <span class="number">.05</span> <span class="keyword">if</span> order.customer.fidelity &gt;= <span class="number">1000</span> <span class="keyword">else</span> <span class="number">0</span></span><br><span class="line"></span><br><span class="line"><span class="meta">@promotion</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">bulk_item</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""10% discount for each LineItem with 20 or more units"""</span></span><br><span class="line">    discount = <span class="number">0</span></span><br><span class="line">    <span class="keyword">for</span> item <span class="keyword">in</span> order.cart:</span><br><span class="line">        <span class="keyword">if</span> item.quantity &gt;= <span class="number">20</span>:</span><br><span class="line">            discount += item.total() * <span class="number">.1</span></span><br><span class="line">    <span class="keyword">return</span> discount</span><br><span class="line"></span><br><span class="line"><span class="meta">@promotion</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">large_order</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""7% discount for orders with 10 or more distince items"""</span></span><br><span class="line">    distinct_items = &#123; item.product <span class="keyword">for</span> item <span class="keyword">in</span> order.cart &#125;</span><br><span class="line">    <span class="keyword">if</span> len(distinct_items) &gt;= <span class="number">10</span>:</span><br><span class="line">        <span class="keyword">return</span> order.total() * <span class="number">.07</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">best_promo</span><span class="params">(order)</span>:</span></span><br><span class="line">    <span class="string">"""Select best discount available"""</span></span><br><span class="line">    <span class="keyword">return</span> max(promo(order) <span class="keyword">for</span> promo <span class="keyword">in</span> promos)</span><br></pre></td></tr></table></figure>
-
-<p>这个解决方案的有点在于：</p>
-<ol>
-<li>计算优惠的策略函数不再需要使用特殊的名字（比如，不在需要以<code>_promo</code>结尾）。</li>
-<li>装饰器<code>@promotion</code>强调了函数的作用，而且可以很容易地暂时取消一种优惠策略：注释掉装饰器就好。</li>
-<li>计算优惠的策略可能被定义在其他模块，或者系统的任何地方。不管函数被定义在哪里，都知道用<code>@promotion</code>修饰就好了。</li>
-</ol>
-<p>大多数装饰器（decorator）都会改变被装饰函数（decorated function）。它们通过定义并返回一个内部函数来替代被装饰函数。使用了内部函数的代码大多依赖于闭包（closure）来正确运行。为了理解闭包，我们得先退后一步，看看 Python 中的变量作用域。</p>
-<h2 id="变量作用域的规则"><a href="#变量作用域的规则" class="headerlink" title="变量作用域的规则"></a>变量作用域的规则</h2><p>在下面的例子中，我们定义并测试了一个读取两个变量的函数：一个局部变量<code>a</code>，被定义为函数的参数；一个没有被定义在函数内的变量<code>b</code>。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span><span class="function"><span class="keyword">def</span> <span class="title">f1</span><span class="params">(a)</span>:</span></span><br><span class="line">    		print(a)</span><br><span class="line">    		print(b)</span><br><span class="line">    </span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>f1(<span class="number">3</span>)</span><br><span class="line"><span class="number">3</span></span><br><span class="line">Traceback (most recent call last):</span><br><span class="line">File <span class="string">"&lt;stdin&gt;"</span>, line <span class="number">1</span>, <span class="keyword">in</span> &lt;module&gt; </span><br><span class="line">File <span class="string">"&lt;stdin&gt;"</span>, line <span class="number">3</span>, <span class="keyword">in</span> f1 </span><br><span class="line">NameError: <span class="keyword">global</span> name <span class="string">'b'</span> <span class="keyword">is</span> <span class="keyword">not</span> defined</span><br></pre></td></tr></table></figure>
-
-<p>我们对于代码运行出现的错误不会感到意外。如果我们首先为全局变量<code>b</code>赋值，然后再调用<code>f1</code>，代码就可以正确工作了：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;</span><span class="bash">&gt;&gt; b = 6</span></span><br><span class="line"><span class="meta">&gt;</span><span class="bash">&gt;&gt; f1(3)</span></span><br><span class="line">3</span><br><span class="line">6</span><br></pre></td></tr></table></figure>
-
-<p>下面，来看一个可能会让你吃惊的例子。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>b = <span class="number">6</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span><span class="function"><span class="keyword">def</span> <span class="title">f2</span><span class="params">(a)</span>:</span></span><br><span class="line">    		print(a)</span><br><span class="line">    		print(b)</span><br><span class="line">    		b = <span class="number">9</span></span><br><span class="line">    </span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>f2(<span class="number">3</span>)</span><br><span class="line"><span class="number">3</span></span><br><span class="line">Traceback (most recent call last):</span><br><span class="line">File <span class="string">"&lt;stdin&gt;"</span>, line <span class="number">1</span>, <span class="keyword">in</span> &lt;module&gt; </span><br><span class="line">File <span class="string">"&lt;stdin&gt;"</span>, line <span class="number">3</span>, <span class="keyword">in</span> f2 </span><br><span class="line">UnboundLocalError: local variable <span class="string">'b'</span> referenced before assignment</span><br></pre></td></tr></table></figure>
-
-<p>注意到 3 被正确打印了，这说明 <code>print(a)</code> 被执行了。但是第二句 <code>print(b)</code> 没有运行。很多人有会很意外，认为 6 应该被打印，因为局部变量 <code>b</code> 在全局变量 <code>b</code> 被打印之后被赋值。</p>
-<p>但事实上，当 Python 编译函数时，决定 <code>b</code> 是局部变量，因为它在函数内被赋值了。生成的二进制字节码也反映了这一点，<code>b</code> 会被从本地环境中获取。之后，当试图获取局部变量 <code>b</code> 的值得时候，会发现 <code>b</code> 未被绑定。</p>
-<p>这并不是一个 bug，而是一个设计选择：Python 不要求用户声明变量，但是假设在函数内被赋值的变量是局部变量。这就比 JavaScript 强很多了，JavaScript 也不要求声明变量，但是如果你忘记了用 <code>var</code> 来声明局部变量，你可能会误用一个全局变量。</p>
-<p>如果我们希望解析器将在函数内被赋值的变量 <code>b</code> 作为全局变量，我们使用 <code>global</code> 关键字来声明：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span><span class="function"><span class="keyword">def</span> <span class="title">f3</span><span class="params">(a)</span>:</span></span><br><span class="line">        <span class="keyword">global</span> b</span><br><span class="line">        print(a)</span><br><span class="line">        print(b)</span><br><span class="line">        b = <span class="number">9</span></span><br><span class="line"></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>f3(<span class="number">3</span>)</span><br><span class="line"><span class="number">3</span></span><br><span class="line"><span class="number">6</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>b</span><br><span class="line"><span class="number">9</span></span><br></pre></td></tr></table></figure>
-
-<h2 id="闭包（Closure）"><a href="#闭包（Closure）" class="headerlink" title="闭包（Closure）"></a>闭包（Closure）</h2><p>在技术博客里面，闭包常常与匿名函数混淆。这是一个历史原因：在使用匿名函数之前，在函数中定义另外一个函数并不常见。闭包仅仅在你定义嵌套函数的时候才有意义。所以很多人同时学习这两个概念。</p>
-<p>实际上，闭包是一个拥有拓展作用域的函数，闭包的作用域包含了在函数内被引用但是却没有被定义在函数中的非全局变量。</p>
-<p>这个概念不太好懂，我们最好还是通过例子来理解它。</p>
-<p>考虑一个计算一个增长序列均值的函数<code>avg</code>，例如股票在整个历史中的平均价格。每天都会有新的价格加入序列，函数<code>avg</code>会计算到目前为止的平均值。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">10</span>)</span><br><span class="line"><span class="number">10</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">11</span>)</span><br><span class="line"><span class="number">10.5</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">12</span>)</span><br><span class="line"><span class="number">11.0</span></span><br></pre></td></tr></table></figure>
-
-<p><code>avg</code> 如何保存之前的值呢？</p>
-<p>我们首先看一个使用类来实现的版本：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Averager</span><span class="params">()</span>:</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span><span class="params">(self)</span>:</span></span><br><span class="line">        self.series = []</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__call__</span><span class="params">(self, new_value)</span>:</span></span><br><span class="line">        self.series.append(new_value)</span><br><span class="line">        total = sum(self.series)</span><br><span class="line">        <span class="keyword">return</span> total / len(self.series)</span><br></pre></td></tr></table></figure>
-
-<p><code>Averager</code> 类的实例是可调用的：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg = Averager()</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">10</span>)</span><br><span class="line"><span class="number">10.0</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">11</span>)</span><br><span class="line"><span class="number">10.5</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">12</span>)</span><br><span class="line"><span class="number">11.0</span></span><br></pre></td></tr></table></figure>
-
-<p>我们再来看一个函数式的例子，它使用了高阶函数<code>make_averager</code>。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">make_averager</span><span class="params">()</span>:</span></span><br><span class="line">    series = []</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">averager</span><span class="params">(new_value)</span>:</span></span><br><span class="line">        series.append(new_value)</span><br><span class="line">        total = sum(series)</span><br><span class="line">        <span class="keyword">return</span> total / len(series)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> averager</span><br></pre></td></tr></table></figure>
-
-<p>被调用时，<code>make_averager</code> 返回一个 <code>averager</code> 函数对象。每次 <code>averager</code> 被调用，它将被传入的参数添加到 <code>series</code> 中，并且计算现在的平均值。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg = make_averager()</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">10</span>)</span><br><span class="line"><span class="number">10.0</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">11</span>)</span><br><span class="line"><span class="number">10.5</span></span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">12</span>)</span><br><span class="line"><span class="number">11.0</span></span><br></pre></td></tr></table></figure>
-
-<p>注意这两种方案的相似之处：我们调用 <code>Averager()</code> 或者 <code>make_averager()</code> 来得到一个可调用对象 <code>avg</code>，它会更新历史数据并计算目前的平均值。</p>
-<p><code>Averager</code> 中的 <code>avg</code> 保存历史记录的方式很明显：<code>self.series</code> 实例属性。但是<code>make_averager</code> 中的 <code>avg</code> 是如何找到 <code>series</code> 的呢？</p>
-<p>注意到 <code>series</code> 是 <code>make_averager</code> 的局部变量，因为它在 <code>make_averager</code> 中被初始化。但是当调用 <code>avg(10)</code>时，<code>make_averager</code> 已经返回了，它的局部作用域已经被回收。</p>
-<p>在 <code>averager</code> 中，<code>series</code> 是自由变量（free variable），这个属于的意思是没有被绑定到该函数局部作用域中的变量。</p>
-<p><img src="/images/2017-7-11/Screen%20Shot%202017-07-09%20at%2010.11.24.png" alt="Screen Shot 2017-07-09 at 10.11.24"></p>
-<p>检查被返回的 <code>averager</code> 对象，我们可以看到 Python 是如果将局部变量和自由变量保存在 <code>__code__</code> 属性中的。<code>__code__</code> 属性代表了函数内容被编译后的结果。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg.__code__.co_varnames</span><br><span class="line">(<span class="string">'new_value'</span>, <span class="string">'total'</span>)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg.__code__.co_freevars</span><br><span class="line">(<span class="string">'series'</span>,)</span><br></pre></td></tr></table></figure>
-
-<p>对 <code>series</code> 的绑定被保存在函数的 <code>__closure__</code> 属性中。<code>avg.__clousre__</code>中的每个元素对应 <code>avg.__code__.co_freevars</code> 中的一个名字。这些元素被称为 <code>cells</code>，它们有保存了真实值的属性 <code>cell_contents</code>。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg.__code__.co_freevars</span><br><span class="line">(<span class="string">'series'</span>,)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg.__closure__</span><br><span class="line">(&lt;cell at <span class="number">0x110f4cc78</span>: list object at <span class="number">0x11104fb88</span>&gt;,)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg.__closure__[<span class="number">0</span>].cell_contents</span><br><span class="line">[<span class="number">10</span>, <span class="number">11</span>, <span class="number">12</span>]</span><br></pre></td></tr></table></figure>
-
-<p>总结一下：闭包是持有了对自由变量绑定的函数，自由变量在函数被定义时就存在了，所有它们可以在作用域消失的时候仍然可以被使用。</p>
-<p>注意只有当一个函数被嵌套到另外一个函数内时，它才需要处理外部作用域的非全局变量。</p>
-<h2 id="nonlocal-修饰符"><a href="#nonlocal-修饰符" class="headerlink" title="nonlocal 修饰符"></a>nonlocal 修饰符</h2><p>我们之前实现的 <code>make_averager</code> 不太高效。我们在数组中保存了所有出现过的值，然后在每次调用 <code>averager</code> 时会计算所有值的和。一个更好的实现应该仅仅保存总的和，以及到目前为止元素的个数，然后利用这两个值来计算平均值。</p>
-<p>下面的代码是错误的，我们可以看看它错在哪里：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">make_averager</span><span class="params">()</span>:</span></span><br><span class="line">    count = <span class="number">0</span></span><br><span class="line">    total = <span class="number">0</span></span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">averager</span><span class="params">(new_value)</span>:</span></span><br><span class="line">        count += <span class="number">1</span></span><br><span class="line">        total += new_value</span><br><span class="line">        <span class="keyword">return</span> total / count</span><br><span class="line">        </span><br><span class="line">    <span class="keyword">return</span> averager</span><br></pre></td></tr></table></figure>
-
-<p>如果我们运行这段代码，会打印出错误信息：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg = make_averager()</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>avg(<span class="number">10</span>)</span><br><span class="line">Traceback (most recent call last):</span><br><span class="line">UnboundLocalError: local variable <span class="string">'count'</span> referenced before assignment</span><br></pre></td></tr></table></figure>
-
-<p>出错的原因在于， 当 <code>count</code> 是数字或不可变类型时，<code>count += 1</code> 实际上相当于 <code>count = count + 1</code>。所以我们实际上是在 <code>averager</code> 的函数内部为 <code>count</code> 赋值，那么这一步就将 <code>count</code> 变为了局部变量。<code>total</code> 也有同样的问题。</p>
-<p>我们在之前的例子总没有这样的问题，因为我们从来没有为 <code>series</code> 赋值，我们仅仅通过调用 <code>series.append</code> 在增加元素，并计算 <code>sum</code> 和 <code>len</code>。我们利用了列表是可变类型的特点。</p>
-<p>但是对于像数字、字符、tuple这样的不可变类型，我们只可以读数据，但是永远都不能够更新它。如果我们试着重新绑定它们，像 <code>count = count + 1</code>，那么你就是在隐式地创建局部变量 <code>count</code>。这样的话，<code>count</code> 就不再是自由变量，所以它没有被保存在闭包中。</p>
-<p>为了解决这个问题，Python 3 引入了新的关键字 <code>nonlocal</code>。它让我们将变量标记为自由变量，即使该变量在函数内部被赋值。如果给 <code>nonlocal</code> 变量赋值，那么在闭包中保存的变量绑定也会改变。所以，<code>make_averager</code> 的正确是实现应该是：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">make_averager</span><span class="params">()</span>:</span></span><br><span class="line">    count = <span class="number">0</span></span><br><span class="line">    total = <span class="number">0</span></span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">averager</span><span class="params">(new_value)</span>:</span></span><br><span class="line">        <span class="keyword">nonlocal</span> count, total</span><br><span class="line">        count += <span class="number">1</span></span><br><span class="line">        total += new_value</span><br><span class="line">        <span class="keyword">return</span> total / count</span><br><span class="line">        </span><br><span class="line">    <span class="keyword">return</span> averager</span><br></pre></td></tr></table></figure>
-
-<p>现在，我们介绍了 Python 中的闭包，我们可以利用内嵌函数来实现装饰器了。</p>
-<h2 id="实现一个简单的装饰器"><a href="#实现一个简单的装饰器" class="headerlink" title="实现一个简单的装饰器"></a>实现一个简单的装饰器</h2><p>下面，我们实现一个为函数的每次调用计时的装饰器，使某函数在每次被调用后就打印函数调用的时间、传入的参数、调用的返回值。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">clock</span><span class="params">(func)</span>:</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">clocked</span><span class="params">(*args)</span>:</span></span><br><span class="line">        t0 = time.perf_counter()</span><br><span class="line">        result = func(*args)</span><br><span class="line">        elapsed = time.perf_counter() - t0</span><br><span class="line">        name = func.__name__</span><br><span class="line">        arg_str = <span class="string">', '</span>.join(repr(arg) <span class="keyword">for</span> arg <span class="keyword">in</span> args)</span><br><span class="line">        print(<span class="string">"[%0.8fs] %s(%s) -&gt; %r"</span> % (elapsed, name, arg_str, result))</span><br><span class="line">        <span class="keyword">return</span> result</span><br><span class="line">    <span class="keyword">return</span> clocked</span><br></pre></td></tr></table></figure>
-
-<ol>
-<li>我们定义了一个内嵌函数 <code>clocked</code>，它可以接受任意个数的参数</li>
-<li><code>clocked</code> 捕获了自由变量 <code>fun</code></li>
-<li><code>clock</code> 会返回内嵌函数 <code>clocked</code> 来代替原来的函数</li>
-</ol>
-<p>下面的代码使用了 <code>clock</code> 装饰器</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">from</span> ex15 <span class="keyword">import</span> clock</span><br><span class="line"></span><br><span class="line"><span class="meta">@clock</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">snooze</span><span class="params">(seconds)</span>:</span></span><br><span class="line">    time.sleep(seconds)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="meta">@clock</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">factorial</span><span class="params">(n)</span>:</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span> <span class="keyword">if</span> n &lt; <span class="number">2</span> <span class="keyword">else</span> n * factorial(n - <span class="number">1</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:</span><br><span class="line">    print(<span class="string">'*'</span> * <span class="number">40</span>, <span class="string">"Calling snooze(.123)"</span>)</span><br><span class="line">    snooze(<span class="number">.123</span>)</span><br><span class="line">    print(<span class="string">'*'</span> * <span class="number">40</span>, <span class="string">"Calling factorial(6)"</span>)</span><br><span class="line">    print(<span class="string">"6! ="</span>, factorial(<span class="number">6</span>))</span><br></pre></td></tr></table></figure>
-
-<p>上面代码的输出是：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">**************************************** Calling snooze(.123)</span><br><span class="line">[0.12784183s] snooze(0.123) -&gt; None</span><br><span class="line">**************************************** Calling factorial(6)</span><br><span class="line">[0.00000130s] factorial(1) -&gt; 1</span><br><span class="line">[0.00004024s] factorial(2) -&gt; 2</span><br><span class="line">[0.00006179s] factorial(3) -&gt; 6</span><br><span class="line">[0.00007902s] factorial(4) -&gt; 24</span><br><span class="line">[0.00009839s] factorial(5) -&gt; 120</span><br><span class="line">[0.00012213s] factorial(6) -&gt; 720</span><br><span class="line">6! &#x3D; 720</span><br></pre></td></tr></table></figure>
-
-<h3 id="它是怎么工作的呢"><a href="#它是怎么工作的呢" class="headerlink" title="它是怎么工作的呢"></a>它是怎么工作的呢</h3><p>要知道代码：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@clock</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">factorial</span><span class="params">(n)</span>:</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span> <span class="keyword">if</span> n &lt; <span class="number">2</span> <span class="keyword">else</span> n * factorial(n - <span class="number">1</span>)</span><br></pre></td></tr></table></figure>
-
-<p>实际上是做的是：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">factorial</span><span class="params">(n)</span>:</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span> <span class="keyword">if</span> n &lt; <span class="number">2</span> <span class="keyword">else</span> n * factorial(n - <span class="number">1</span>)</span><br><span class="line"></span><br><span class="line">factorial = clock(factorial)</span><br></pre></td></tr></table></figure>
-
-<p>在两个例子中，<code>clock</code> 将 <code>factorial</code> 作为参数，然后创建并返回 <code>clocked</code> 函数，最后，Python 解释器将 <code>factorial</code> 绑定到 <code>clocked</code>。实际上，如果我们检查 <code>factorial</code> 的 <code>__name__</code> 属性，可以得到：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; clockdeco_demo.factorial.__name__</span><br><span class="line">&quot;clocked&quot;</span><br></pre></td></tr></table></figure>
-
-<p>所以，<code>factorial</code> 实际上保存了指向 <code>clocked</code> 的引用。从现在开始，每次调用 <code>factorial(n)</code>，实际上会执行的是 <code>clocked</code>。而 <code>clocked</code> 的执行步骤为：</p>
-<ol>
-<li>记录初始时间 t0</li>
-<li>调用原来的 <code>factorial</code> 函数，保存结果</li>
-<li>计算得到结果的花费时间</li>
-<li>格式化并打印收集到的数据</li>
-<li>返回保存的计算结果</li>
-</ol>
-<p>这是装饰器的典型的行为：它用接受相同参数的新的函数来代替被装饰的函数，并且在返回被装饰函数应该返回的结果的基础上，做额外的工作。</p>
-<p>在上面例子中的装饰器有一些缺点：它不接受关键字参数，它覆盖了被装饰函数的 <code>__name__</code> 和 <code>__doc__</code> 属性。下面的例子中，我们使用 <code>functools.wraps</code> 装饰器将 <code>func</code> 的属性拷贝到 <code>clocked</code> 属性中。而且，新版本的装饰器也可以接受关键字参数：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> functools</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">clock</span><span class="params">(func)</span>:</span></span><br><span class="line"><span class="meta">    @functools.wraps(func)</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">clocked</span><span class="params">(*args, **kwargs)</span>:</span></span><br><span class="line">        t0 = time.time()</span><br><span class="line">        result = func(*args, **kwargs)</span><br><span class="line">        elapsed = time.time() - t0</span><br><span class="line">        name = func.__name__</span><br><span class="line">        arg_lst = []</span><br><span class="line">        <span class="keyword">if</span> args:</span><br><span class="line">            arg_lst.append(<span class="string">', '</span>.join(repr(arg) <span class="keyword">for</span> arg <span class="keyword">in</span> args))</span><br><span class="line">        <span class="keyword">if</span> kwargs:</span><br><span class="line">            pairs = [<span class="string">"%s=%r"</span> % (k, w) <span class="keyword">for</span> k, w <span class="keyword">in</span> sorted(kwargs.items())]</span><br><span class="line">            arg_lst.append(<span class="string">', '</span>.join(pairs))</span><br><span class="line">        arg_str = <span class="string">', '</span>.join(arg_lst)</span><br><span class="line">        print(<span class="string">"[%0.8fs] %s(%s) -&gt; %r"</span> % (elapsed, name, arg_str, result))</span><br><span class="line">        <span class="keyword">return</span> result</span><br><span class="line">    <span class="keyword">return</span> clocked</span><br></pre></td></tr></table></figure>
-
-<p><code>functools.wraps</code> 仅仅是标准库中直接可用的装饰器之一。我们来研究两个 <code>functools</code> 提供的两个强大的装饰器 <code>lru_cache</code> 和 <code>singleddispatch</code>。</p>
-<h2 id="标准库中的装饰器"><a href="#标准库中的装饰器" class="headerlink" title="标准库中的装饰器"></a>标准库中的装饰器</h2><p>标准库中最有趣的两个装饰器是 <code>lru_cache</code> 和 <code>singledispatch</code>，它们都被被定义在 <code>functools</code> 中。</p>
-<h3 id="functools-lru-cache-实现记忆化"><a href="#functools-lru-cache-实现记忆化" class="headerlink" title="functools.lru_cache 实现记忆化"></a>functools.lru_cache 实现记忆化</h3><p><code>functools.lru_cache</code> 是一个非常实用的装饰器，它实现了计算的记忆化。记忆化是通过将之前的计算结果缓存，从而避免重复计算的优化技术。LRU 是 Least Recently Used（最近最久未使用）的缩写，意思是通过丢弃暂时没有使用的单元来限制缓存的大小。</p>
-<p>我们可以使用 <code>lru_cache</code> 来优化计算 Fibonacci 的递归函数。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> clockdeco2 <span class="keyword">import</span> clock</span><br><span class="line"></span><br><span class="line"><span class="meta">@clock</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">fibonacci</span><span class="params">(n)</span>:</span></span><br><span class="line">    <span class="keyword">if</span> n &lt; <span class="number">2</span>:</span><br><span class="line">        <span class="keyword">return</span> n</span><br><span class="line">    <span class="keyword">return</span> fibonacci(n - <span class="number">2</span>) + fibonacci(n - <span class="number">1</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">'__main__'</span>:</span><br><span class="line">    print(fibonacci(<span class="number">6</span>))</span><br></pre></td></tr></table></figure>
-
-<p>这是一个非常低效的版本，这一点我们可以从它的输入信息看出来：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">[0.00000119s] fibonacci(0) -&gt; 0</span><br><span class="line">[0.00000119s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00006604s] fibonacci(2) -&gt; 1</span><br><span class="line">[0.00000119s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00000095s] fibonacci(0) -&gt; 0</span><br><span class="line">[0.00000095s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00002599s] fibonacci(2) -&gt; 1</span><br><span class="line">[0.00004578s] fibonacci(3) -&gt; 2</span><br><span class="line">[0.00013208s] fibonacci(4) -&gt; 3</span><br><span class="line">[0.00000000s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00000095s] fibonacci(0) -&gt; 0</span><br><span class="line">[0.00000000s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00001907s] fibonacci(2) -&gt; 1</span><br><span class="line">[0.00003767s] fibonacci(3) -&gt; 2</span><br><span class="line">[0.00000119s] fibonacci(0) -&gt; 0</span><br><span class="line">[0.00000095s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00001907s] fibonacci(2) -&gt; 1</span><br><span class="line">[0.00000119s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00000000s] fibonacci(0) -&gt; 0</span><br><span class="line">[0.00000119s] fibonacci(1) -&gt; 1</span><br><span class="line">[0.00001907s] fibonacci(2) -&gt; 1</span><br><span class="line">[0.00003791s] fibonacci(3) -&gt; 2</span><br><span class="line">[0.00007606s] fibonacci(4) -&gt; 3</span><br><span class="line">[0.00013065s] fibonacci(5) -&gt; 5</span><br><span class="line">[0.00028324s] fibonacci(6) -&gt; 8</span><br><span class="line">8</span><br></pre></td></tr></table></figure>
-
-<p>代码的低效是很明显的，<code>fibonacci(1)</code> 被计算了8次，<code>fibonacci(2)</code> 被计算了5次。但是如果我们添加了 <code>lru_cache</code>，性能会得到很大提升。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> functools</span><br><span class="line"></span><br><span class="line"><span class="keyword">from</span> clockdeco2 <span class="keyword">import</span> clock</span><br><span class="line"></span><br><span class="line"><span class="meta">@functools.lru_cache()</span></span><br><span class="line"><span class="meta">@clock</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">fibnocci</span><span class="params">(n)</span>:</span></span><br><span class="line">    <span class="keyword">if</span> n &lt; <span class="number">2</span>:</span><br><span class="line">        <span class="keyword">return</span> n</span><br><span class="line">    <span class="keyword">return</span> fibnocci(n - <span class="number">2</span>) + fibnocci(n - <span class="number">1</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:</span><br><span class="line">    print(fibnocci(<span class="number">6</span>))</span><br></pre></td></tr></table></figure>
-
-<ol>
-<li><code>lru_cache</code> 必须写成函数调用的形式，注意后面的括号。这是因为它可以接受配置信息。</li>
-<li>这是一个堆叠装饰器的例子，<code>@lru_cacha()</code> 修饰被 <code>@clock</code> 返回的函数</li>
-</ol>
-<p>上面的代码将运行时间缩短了一半，消除了所有的重复计算</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[0.00000119s] fibnocci(0) -&gt; 0</span><br><span class="line">[0.00000215s] fibnocci(1) -&gt; 1</span><br><span class="line">[0.00011992s] fibnocci(2) -&gt; 1</span><br><span class="line">[0.00000167s] fibnocci(3) -&gt; 2</span><br><span class="line">[0.00015306s] fibnocci(4) -&gt; 3</span><br><span class="line">[0.00000095s] fibnocci(5) -&gt; 5</span><br><span class="line">[0.00018692s] fibnocci(6) -&gt; 8</span><br><span class="line">8</span><br></pre></td></tr></table></figure>
-
-<p>在另一个测试中，计算 <code>fibonacci(30)</code> 没有使用 <code>lru_cache</code> 的版本需要调用 <code>fibonacci</code> 2,692,537 次，花费 17.7秒，而优化有的版本仅仅调用 31 次，仅仅花费 0.0005秒。</p>
-<p>除了优化递归函数外，<code>lru_cache</code> 还可以被应用于从 Web 获取数据的应用程序。</p>
-<p>我们可以通过传入两个可选参数来调整 <code>lru_cache</code> 的行为，它的完整函数名称为：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">functools.lru_cache(maxsize=<span class="number">128</span>, typed=<span class="literal">False</span>)</span><br></pre></td></tr></table></figure>
-
-<p><code>maxsize</code> 参数确定了最多有多少和单元可以被缓存，如果缓存被填满，旧的单元将被删除。为了性能考虑，<code>maxsize</code> 通常应该是 2 的幂。<code>type</code> 如果被设置为 True，不同的参数类型的结果就会被分开存储，例如传入 float 和 int 作为参数的 1.0 和 1 的两次计算结果会被分开存储。另外，应为 <code>lru_cache</code> 使用了 dict 来存储数据，字典的键是根据传入的参数来确定的，所以参数都必须 hashable。</p>
-<h3 id="Single-Disptch-实现泛型函数"><a href="#Single-Disptch-实现泛型函数" class="headerlink" title="Single Disptch 实现泛型函数"></a>Single Disptch 实现泛型函数</h3><p>假设我们要开发一个调试 Web 应用程序的工具。我们希望为不同的 Python 对象生成不同的 HTML 文本。</p>
-<p>我们可以从一个函数开始：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> html</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">htmlize</span><span class="params">(obj)</span>:</span></span><br><span class="line">    content = html.escape(repr(obj))</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"&lt;pre&gt;&#123;&#125;&lt;/pre&gt;"</span>.format(content)</span><br></pre></td></tr></table></figure>
-
-<p>这段代码可以作用与任何 Python 类型，但是我们想拓展它来为一些类型生成不同的文本：</p>
-<ul>
-<li>str：将内嵌的换行符用 “&lt;<em>br</em>&gt;\n” 替换，使用 &lt;<em>p</em>&gt; 而不是 &lt;<em>pre</em>&gt;</li>
-<li>int：用十进制和十六进制来显示数字</li>
-<li>list： 输出一个 HTML 列表，根据不同元素类型来格式化每一行</li>
-</ul>
-<p>我们希望的行为如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; htmlize(&#123;1, 2, 3&#125;)</span><br><span class="line">&#39;&lt;pre&gt;&#123;1, 2, 3&#125;&lt;&#x2F;pre&gt;&#39;</span><br><span class="line">&gt;&gt;&gt; htmlize(abs)</span><br><span class="line">&#39;&lt;pre&gt;&lt;built-in function abs&gt;&lt;&#x2F;pre&gt;&#39;</span><br><span class="line">&gt;&gt;&gt; htmlize(&quot;Heimlich &amp; Co.\n- a game&quot;)</span><br><span class="line">&#39;&lt;p&gt;Heimlich &amp; Co.&lt;br&gt;\n- a game&lt;&#x2F;p&gt;&#39;</span><br><span class="line">&gt;&gt;&gt; htmlize(42)</span><br><span class="line">&#39;&lt;pre&gt;42 (0x2a)&lt;&#x2F;pre&gt;&#39;</span><br><span class="line">&gt;&gt;&gt; print(htmlize([&quot;alpha&quot;, 66, &#123;3, 2, 1&#125;]))</span><br><span class="line">&lt;ul&gt; </span><br><span class="line">    &lt;li&gt;&lt;p&gt;alpha&lt;&#x2F;p&gt;&lt;&#x2F;li&gt; </span><br><span class="line">    &lt;li&gt;&lt;pre&gt;66 (0x42)&lt;&#x2F;pre&gt;&lt;&#x2F;li&gt; </span><br><span class="line">    &lt;li&gt;&lt;pre&gt;&#123;1, 2, 3&#125;&lt;&#x2F;pre&gt;&lt;&#x2F;li&gt; </span><br><span class="line">&lt;&#x2F;ul&gt;</span><br></pre></td></tr></table></figure>
-
-<p>因为 Python 中没有函数重载，我们不懂通过控制函数的类型来重载 <code>htmlize</code>。Python 中一种普遍的方式是将 <code>htmlize</code> 变为一个分发函数，也就是使用 <code>if/elif/else</code> 将操作分发到 <code>htmlize_str</code>, <code>htmlize_int</code> 等。这种方式是补课拓展的，随着不同类型操作的增加，我们代码中的 <code>if/elif</code> 也会越来越长，代码间的耦合度过于紧密了。</p>
-<p>新的 <code>functools.singledispatch</code> 装饰器在 Python 3.4 中引入，它允许我们增加新的特化函数。如果我们用 <code>@singledispatch</code> 装饰一个函数，这个函数就变成了一个 <code>generic function</code> 泛型函数：用不同方法来解决相同问题的一组函数，它们根据参数的类型选择应该执行的操作。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> functools <span class="keyword">import</span> singledispatch</span><br><span class="line"><span class="keyword">from</span> collections <span class="keyword">import</span> abs</span><br><span class="line"><span class="keyword">import</span> numbers</span><br><span class="line"><span class="keyword">import</span> html</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="meta">@singledispatch</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">htmllize</span><span class="params">(obj)</span>:</span></span><br><span class="line">    content = html.escape(repr(obj))</span><br><span class="line">    <span class="keyword">return</span> <span class="string">"&lt;pre&gt;&#123;&#125;&lt;/pre&gt;"</span>.format(content)</span><br><span class="line"></span><br><span class="line"><span class="meta">@htmllize.register(str)</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">_</span><span class="params">(text)</span>:</span></span><br><span class="line">    content = html.escape(text).replace(<span class="string">'\n'</span>, <span class="string">'&lt;br&gt;\n'</span>)</span><br><span class="line">    <span class="keyword">return</span> <span class="string">'&lt;p&gt;&#123;0&#125;&lt;/p&gt;'</span>.format(content)</span><br><span class="line"></span><br><span class="line"><span class="meta">@htmllize.resigter(numbers.Integral)</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">_</span><span class="params">(n)</span>:</span></span><br><span class="line">    <span class="keyword">return</span> <span class="string">'&lt;pre&gt;&#123;0&#125; (0x&#123;0:x&#125;)&lt;/pre&gt;'</span>.format(n)</span><br><span class="line"></span><br><span class="line"><span class="meta">@htmllize.register(tuple)</span></span><br><span class="line"><span class="meta">@htmllize.register(abs.MutableSequence)</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">_</span><span class="params">(seq)</span>:</span></span><br><span class="line">    inner = <span class="string">'&lt;/li&gt;\n&lt;li&gt;'</span>.join(htmlize(item) <span class="keyword">for</span> item <span class="keyword">in</span> seq)</span><br><span class="line">    <span class="keyword">return</span> <span class="string">'&lt;ul&gt;\n&lt;li&gt;'</span> + inner + <span class="string">'&lt;/li&gt;\n&lt;/ul&gt;'</span></span><br></pre></td></tr></table></figure>
-
-<ol>
-<li><code>@singledispatch</code> 标记了处理 object 的基函数</li>
-<li>每一种特化函数都用 <code>@&lt;base_function&gt;.register(&lt;type&gt;)</code> 来装饰，它们的函数名无关紧要，<code>_</code>是一个好的选择</li>
-<li>我们也可以叠加多个装饰器来用一个函数来处理几种参数</li>
-</ol>
-<p>如果可能的话，尽量使用抽象类型，如 <code>numbers.Intergral</code> 和 <code>abs.MutableSequence</code>，而不是具体类型如 <code>int</code> 或 <code>list</code> 来注册特化函数，这样，我们的函数可以支持更多的兼容类型。</p>
-<p>我们可以使用 <code>singledispatch</code> 在系统的任意位置注册特化函数。如果我们在一个新的模块添加了新的自定义类型，我们可以直接在新的模块中添加处理该类型的代码。我们我也可为不是自己所写，也无权修改的函数添加自定义的实现。</p>
-<p><code>singledispatch</code> 的完整特性可以查看 <a href="https://www.python.org/dev/peps/pep-0443/" target="_blank" rel="noopener">PEP 443 - Single-dispatch generic functions</a></p>
-<p>因为装饰器本质上是函数，所谓我们可以组合它们。</p>
-<h2 id="Stacked-Decorators"><a href="#Stacked-Decorators" class="headerlink" title="Stacked Decorators"></a>Stacked Decorators</h2><p>当两个装饰器 <code>@d2</code> 和 <code>@d1</code> 依次作用于函数 <code>f</code> 后，结果其实就是 <code>f = d1(d2(f2))</code>。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@d1</span></span><br><span class="line"><span class="meta">@d2</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">'f'</span>)</span><br></pre></td></tr></table></figure>
-
-<p>相当于</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">'f'</span>)</span><br><span class="line"></span><br><span class="line">f = d1(d2(f))</span><br></pre></td></tr></table></figure>
-
-<h2 id="装饰器的参数化"><a href="#装饰器的参数化" class="headerlink" title="装饰器的参数化"></a>装饰器的参数化</h2><p>当在源代码中解析装饰器时，Python 将被装饰的函数作为第一个参数传入装饰器。所以我们要如何让装饰器接受其他的参数呢？答案是首先创建一个接受额外参数的装饰器工厂，然后再用它生成装饰器。很乱吧？我们通过一个例子来理解：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">registry = []</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">register</span><span class="params">(func)</span>:</span></span><br><span class="line">    print(<span class="string">"running register(%s)"</span> % func)</span><br><span class="line">    registry.append(func)</span><br><span class="line">    <span class="keyword">return</span> func</span><br><span class="line"></span><br><span class="line"><span class="meta">@register</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f1</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"funning f1()"</span>)</span><br><span class="line">    </span><br><span class="line">print(<span class="string">"running main()"</span>)</span><br><span class="line">print(<span class="string">"registry -&gt; "</span>, registry)</span><br><span class="line">f1()</span><br></pre></td></tr></table></figure>
-
-<p>为了让启用和禁用函数注册更加容易，我们让装饰器接受一个额外的参数 <code>active</code>，如果为 False，则跳过被注册函数。下面的代码实现了这个功能。从概念上讲，新的 <code>register</code> 函数不是一个装饰器，而是一个装饰器工厂函数，它根据参数，返回相应的装饰器。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">registry = set()</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">register</span><span class="params">(active=True)</span>:</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">decorate</span><span class="params">(func)</span>:</span></span><br><span class="line">        print(<span class="string">"running register(active=%s)-&gt;decorate(%s)"</span> % (active, func))</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> active:</span><br><span class="line">            registry.add(func)</span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            registry.discard(func)</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">return</span> func</span><br><span class="line">    <span class="keyword">return</span> decorate</span><br><span class="line"></span><br><span class="line"><span class="meta">@register(active=False)</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f1</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running f1()"</span>)</span><br><span class="line"></span><br><span class="line"><span class="meta">@register()</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">f2</span><span class="params">()</span>:</span></span><br><span class="line">    print(<span class="string">"running f2()"</span>)</span><br></pre></td></tr></table></figure>
-
-<p>这里的重点在于 <code>register()</code> 返回装饰器 <code>decorate</code>，被返回的装饰器再作用于函数。</p>
-<p>我们在中断导入这个模块可以看到：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; import registration_param</span><br><span class="line">running register(active&#x3D;False)-&gt;decorate(&lt;function f1 at 0x1027fe0d0&gt;)</span><br><span class="line">running register(active&#x3D;True)-&gt;decorate(&lt;function f2 at 0x1027fe268&gt;)</span><br><span class="line">&gt;&gt;&gt; registration_param.registry</span><br><span class="line">&#123;&lt;function registration_param.f2&gt;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>现在，仅仅 <code>f2</code> 被注册了；<code>f1</code> 没有被注册，因为 <code>active=False</code> 被传入了装饰器工厂。如果不使用 <code>@</code> 语法糖，我们按照普通的函数调用来使用 <code>register</code>，那么装饰 <code>f</code> 的方式应该是 <code>register()(f)</code>，或者 <code>register(active=False)(f)</code>。</p>
-<p>我们现在讨论的参数化的装饰器还是要比大多数简单的。如果我们要让装饰器接受额外的参数，并且要用新的函数还替换被装饰函数，那么我们的装饰器工厂就又会多一层嵌套。</p>
-<p>现在，我们回顾下 <code>clock</code> 装饰器，希望让它可以接受新的参数来控制输出格式。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">DEFAULT_FMT = <span class="string">'[&#123;elapsed:0.8f&#125;s] &#123;name&#125;(&#123;args&#125;) -&gt; &#123;result&#125;'</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">clock</span><span class="params">(fmt = DEFAULT_FMT)</span>:</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">decorate</span><span class="params">(func)</span>:</span></span><br><span class="line">        <span class="function"><span class="keyword">def</span> <span class="title">clocked</span><span class="params">(*_args)</span>:</span></span><br><span class="line">            t0 = time.time()</span><br><span class="line">            _result = func(*_args)</span><br><span class="line">            elapsed = time.time() - t0</span><br><span class="line">            name = func.__name__</span><br><span class="line">            args = <span class="string">', '</span>.join(repr(arg) <span class="keyword">for</span> arg <span class="keyword">in</span> _args)</span><br><span class="line">            result = repr(_result)</span><br><span class="line">            print(fmt.format(**locals()))</span><br><span class="line">            <span class="keyword">return</span> _result</span><br><span class="line">        <span class="keyword">return</span> clocked</span><br><span class="line">    <span class="keyword">return</span> decorate</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:</span><br><span class="line"></span><br><span class="line"><span class="meta">    @clock()</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">snooze</span><span class="params">(seconds)</span>:</span></span><br><span class="line">        time.sleep(seconds)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> range(<span class="number">3</span>):</span><br><span class="line">        snooze(<span class="number">.123</span>)</span><br></pre></td></tr></table></figure>
-
-<p>运行代码，我们可以得到：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[0.12418222s] snooze(0.123) -&gt; None</span><br><span class="line">[0.12602901s] snooze(0.123) -&gt; None</span><br><span class="line">[0.12367606s] snooze(0.123) -&gt; None</span><br></pre></td></tr></table></figure>
-
-<p>我们传入参数：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">from</span> clockdeco_param <span class="keyword">import</span> clock</span><br><span class="line"></span><br><span class="line"><span class="meta">@clock("&#123;name&#125;(&#123;args&#125;) dt=&#123;elapsed:0.3f&#125;s")</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">snooze</span><span class="params">(seconds)</span>:</span></span><br><span class="line">    time.sleep(seconds)</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> range(<span class="number">3</span>):</span><br><span class="line">    snooze(<span class="number">.123</span>)</span><br></pre></td></tr></table></figure>
-
-<p>运行可以得到：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">snooze(0.123) dt&#x3D;0.128s</span><br><span class="line">snooze(0.123) dt&#x3D;0.124s</span><br><span class="line">snooze(0.123) dt&#x3D;0.125s</span><br></pre></td></tr></table></figure>
-
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>我们从没有内嵌函数的 <code>@register</code> 装饰器开始，到带参数的有两层嵌套函数的 <code>@clock()</code>，讨论了装饰器的使用方式和工作原理，也讨论了标准库中的实用的装饰器 <code>wraps</code>，<code>lru_cache</code>，<code>singledispatch</code>。</p>
-<p>为了理解装饰器的工作方式，理解 <em>import time</em> 和 <em>run time</em> 的区别，我们研究了变量作用域，闭包以及 <code>global</code> 和 <code>nonlocal</code> 关键字。</p>
 
       
     </div>
@@ -2304,7 +2133,7 @@ mjx-container + br {
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">24</span>
+          <span class="site-state-item-count">25</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -2315,7 +2144,7 @@ mjx-container + br {
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
-        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-count">26</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
